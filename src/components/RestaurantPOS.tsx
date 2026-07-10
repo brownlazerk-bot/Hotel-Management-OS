@@ -163,7 +163,17 @@ export default function RestaurantPOS() {
   // Helper: Checks if item is a beverage/drink
   const isDrinkItem = (menuItemId: string): boolean => {
     const menuItem = db.menuItems.find(m => m.id === menuItemId);
-    if (!menuItem) return false;
+    if (!menuItem) {
+      if (menuItemId.startsWith('stock_')) {
+        const actualId = menuItemId.replace('stock_', '');
+        const prod = db.products.find(p => p.id === actualId);
+        if (prod) {
+          const cat = prod.category.toLowerCase();
+          return cat.includes('beverage') || cat.includes('alcoholic') || cat.includes('drink');
+        }
+      }
+      return false;
+    }
     const cat = menuItem.category.toLowerCase();
     return cat.includes('beverage') || cat.includes('alcoholic') || cat.includes('drink');
   };
@@ -383,6 +393,14 @@ export default function RestaurantPOS() {
             it.quantity,
             'Out',
             `POS POS_Complete direct link: ${order.orderNumber}`
+          );
+        } else if (it.menuItemId.startsWith('stock_')) {
+          const actualProductId = it.menuItemId.replace('stock_', '');
+          store.addInventoryMovement(
+            actualProductId,
+            it.quantity,
+            'Out',
+            `POS POS_Complete direct stock sale: ${order.orderNumber}`
           );
         }
       }
@@ -671,7 +689,7 @@ export default function RestaurantPOS() {
     return Math.max(0, Math.round((cartSubtotal + cartTax - posDiscount) * 100) / 100);
   }, [cartSubtotal, cartTax, posDiscount]);
 
-  const addToCart = (item: MenuItem) => {
+  const addToCart = (item: { id: string; name: string; price: number }) => {
     setPosError('');
     const existing = cart.find(it => it.menuItemId === item.id);
     if (existing) {
@@ -780,6 +798,14 @@ export default function RestaurantPOS() {
       return cMatch && sMatch && item.isAvailable;
     });
   }, [db.menuItems, menuFilterCategory, menuSearchQuery]);
+
+  // Dynamic stock catalog filters
+  const filteredStockProducts = useMemo(() => {
+    return db.products.filter(product => {
+      const sMatch = product.name.toLowerCase().includes(menuSearchQuery.toLowerCase());
+      return sMatch;
+    });
+  }, [db.products, menuSearchQuery]);
 
   // Dynamically calculate reports on Reports Tab (Step 10)
   const reportStats = useMemo(() => {
@@ -1184,13 +1210,13 @@ export default function RestaurantPOS() {
               {/* Menu and catalog filters */}
               <div className="lg:col-span-2 space-y-4">
                 <div className="flex items-center justify-between gap-4 flex-wrap pb-2 border-b border-gray-100">
-                  <div className="flex items-center space-x-1 bg-gray-50 p-1 rounded-xl border border-gray-150">
-                    {['All', 'Starter', 'Main', 'Dessert', 'Beverage', 'Alcoholic'].map(cat => (
+                  <div className="flex items-center space-x-1 bg-gray-50 p-1 rounded-xl border border-gray-150 overflow-x-auto max-w-full">
+                    {['All', 'Starter', 'Main', 'Dessert', 'Beverage', 'Alcoholic', 'Stock Items'].map(cat => (
                       <button
                         key={cat}
                         onClick={() => setMenuFilterCategory(cat)}
-                        className={`px-3 py-1 rounded-lg text-[10px] font-bold cursor-pointer transition ${
-                          menuFilterCategory === cat ? 'bg-white text-gray-800 border border-gray-150' : 'text-gray-400 hover:text-gray-600'
+                        className={`px-3 py-1 rounded-lg text-[10px] font-bold cursor-pointer transition whitespace-nowrap ${
+                          menuFilterCategory === cat ? 'bg-white text-gray-800 border border-gray-150 shadow-sm' : 'text-gray-400 hover:text-gray-600'
                         }`}
                       >
                         {cat}
@@ -1214,49 +1240,94 @@ export default function RestaurantPOS() {
                 )}
 
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-[500px] overflow-y-auto pr-1">
-                  {filteredMenuItems.map(item => {
-                    const product = item.productId ? db.products.find(p => p.id === item.productId) : null;
-                    const stock = product ? product.currentStock : null;
-                    const isOutOfStock = stock !== null && stock <= 0;
+                  {menuFilterCategory === 'Stock Items' ? (
+                    filteredStockProducts.map(product => {
+                      const stock = product.currentStock;
+                      const isOutOfStock = stock <= 0;
 
-                    return (
-                      <div
-                        key={item.id}
-                        onClick={() => {
-                          if (isOutOfStock) {
-                            setPosError(`"${item.name}" ingredient stock is exhausted!`);
-                            return;
-                          }
-                          addToCart(item);
-                        }}
-                        className={`p-3.5 rounded-2xl border flex flex-col justify-between h-28 transition group ${
-                          isOutOfStock 
-                            ? 'bg-red-50/40 border-red-200 opacity-60 cursor-not-allowed'
-                            : 'bg-gray-50/50 hover:bg-[#1B4F72]/5 hover:border-[#1B4F72]/30 border-gray-150 cursor-pointer'
-                        }`}
-                      >
-                        <div>
-                          <div className="flex items-start justify-between gap-1.5">
-                            <strong className="text-xs text-slate-800 font-bold block group-hover:text-[#1B4F72] truncate">{item.name}</strong>
-                            {stock !== null && (
+                      return (
+                        <div
+                          key={product.id}
+                          onClick={() => {
+                            if (isOutOfStock) {
+                              setPosError(`"${product.name}" stock is exhausted!`);
+                              return;
+                            }
+                            addToCart({
+                              id: `stock_${product.id}`,
+                              name: product.name,
+                              price: product.unitPrice
+                            });
+                          }}
+                          className={`p-3.5 rounded-2xl border flex flex-col justify-between h-28 transition group ${
+                            isOutOfStock 
+                              ? 'bg-red-50/40 border-red-200 opacity-60 cursor-not-allowed'
+                              : 'bg-gray-50/50 hover:bg-[#1B4F72]/5 hover:border-[#1B4F72]/30 border-gray-150 cursor-pointer'
+                          }`}
+                        >
+                          <div>
+                            <div className="flex items-start justify-between gap-1.5">
+                              <strong className="text-xs text-slate-800 font-bold block group-hover:text-[#1B4F72] truncate">{product.name}</strong>
                               <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded uppercase shrink-0 ${
                                 isOutOfStock ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
                               }`}>
-                                {isOutOfStock ? 'OOS' : `${stock} left`}
+                                {isOutOfStock ? 'OOS' : `${stock} ${product.unit}`}
                               </span>
+                            </div>
+                            <span className="text-[10px] text-gray-400 font-medium block mt-0.5 uppercase">Stock - {product.category}</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <strong className="text-xs font-bold text-slate-800">${product.unitPrice}</strong>
+                            <span className="text-[8px] bg-blue-50 text-[#1B4F72] border px-1 rounded font-bold">Direct Stock</span>
+                          </div>
+                        </div>
+                      );
+                    })
+                  ) : (
+                    filteredMenuItems.map(item => {
+                      const product = item.productId ? db.products.find(p => p.id === item.productId) : null;
+                      const stock = product ? product.currentStock : null;
+                      const isOutOfStock = stock !== null && stock <= 0;
+
+                      return (
+                        <div
+                          key={item.id}
+                          onClick={() => {
+                            if (isOutOfStock) {
+                              setPosError(`"${item.name}" ingredient stock is exhausted!`);
+                              return;
+                            }
+                            addToCart(item);
+                          }}
+                          className={`p-3.5 rounded-2xl border flex flex-col justify-between h-28 transition group ${
+                            isOutOfStock 
+                              ? 'bg-red-50/40 border-red-200 opacity-60 cursor-not-allowed'
+                              : 'bg-gray-50/50 hover:bg-[#1B4F72]/5 hover:border-[#1B4F72]/30 border-gray-150 cursor-pointer'
+                          }`}
+                        >
+                          <div>
+                            <div className="flex items-start justify-between gap-1.5">
+                              <strong className="text-xs text-slate-800 font-bold block group-hover:text-[#1B4F72] truncate">{item.name}</strong>
+                              {stock !== null && (
+                                <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded uppercase shrink-0 ${
+                                  isOutOfStock ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
+                                }`}>
+                                  {isOutOfStock ? 'OOS' : `${stock} left`}
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-[10px] text-gray-400 font-medium block mt-0.5 uppercase">{item.category}</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <strong className="text-xs font-bold text-slate-800">${item.price}</strong>
+                            {INGREDIENTS_RECIPES[item.name.toLowerCase()] && (
+                              <span className="text-[8px] bg-amber-50 text-amber-700 border px-1 rounded">Recipe</span>
                             )}
                           </div>
-                          <span className="text-[10px] text-gray-400 font-medium block mt-0.5 uppercase">{item.category}</span>
                         </div>
-                        <div className="flex items-center justify-between">
-                          <strong className="text-xs font-bold text-slate-800">${item.price}</strong>
-                          {INGREDIENTS_RECIPES[item.name.toLowerCase()] && (
-                            <span className="text-[8px] bg-amber-50 text-amber-700 border px-1 rounded">Recipe</span>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })
+                  )}
                 </div>
               </div>
 
