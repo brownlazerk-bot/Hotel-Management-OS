@@ -5,7 +5,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { store } from '../db/store';
-import { Employee, Attendance, Payroll, Account, Transaction, Department } from '../types';
+import { Employee, Attendance, Payroll, Account, Transaction, Department, User, Role, RoleName, Permission } from '../types';
 import {
   Users,
   ShieldAlert,
@@ -17,11 +17,18 @@ import {
   TrendingUp,
   TrendingDown,
   CheckCircle,
-  FileCheck
+  FileCheck,
+  UserCheck,
+  UserPlus,
+  Trash2,
+  Edit,
+  Shield,
+  Key,
+  Lock
 } from 'lucide-react';
 
 export default function HRFinance() {
-  const [activeTab, setActiveTab] = useState<'employees' | 'attendance' | 'payroll' | 'ledger'>('employees');
+  const [activeTab, setActiveTab] = useState<'employees' | 'attendance' | 'payroll' | 'ledger' | 'users'>('employees');
   const db = store.getDb();
 
   // Employee creation states
@@ -54,9 +61,112 @@ export default function HRFinance() {
   const [deptDesc, setDeptDesc] = useState('');
   const [deptManager, setDeptManager] = useState('');
 
+  // User creation / edit states
+  const [usrId, setUsrId] = useState('');
+  const [usrUsername, setUsrUsername] = useState('');
+  const [usrPassword, setUsrPassword] = useState('');
+  const [usrName, setUsrName] = useState('');
+  const [usrEmail, setUsrEmail] = useState('');
+  const [usrRole, setUsrRole] = useState<RoleName>('Receptionist');
+  const [usrActive, setUsrActive] = useState(true);
+  const [isEditingUser, setIsEditingUser] = useState(false);
+
+  // Selected Role for Permissions Editor
+  const [selectedRoleName, setSelectedRoleName] = useState<RoleName>('Receptionist');
+
   // ============================================================================
   // OPERATIONS HANDLERS
   // ============================================================================
+  const handleSaveUser = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!usrUsername || !usrName || !usrEmail) return;
+
+    // Check if username is already taken by another user
+    const usernameExists = db.users.some(u => u.username.toLowerCase() === usrUsername.toLowerCase() && u.id !== usrId);
+    if (usernameExists) {
+      alert('Username is already in use by another operator.');
+      return;
+    }
+
+    const newUser: User = {
+      id: usrId || `user_${Date.now()}`,
+      username: usrUsername.trim(),
+      passwordHash: usrPassword || 'password123', // Default password if empty
+      role: usrRole,
+      name: usrName.trim(),
+      email: usrEmail.trim(),
+      isActive: usrActive,
+      createdAt: usrId ? (db.users.find(u => u.id === usrId)?.createdAt || new Date().toISOString()) : new Date().toISOString()
+    };
+
+    store.saveUser(newUser);
+    
+    // Clear form
+    setUsrId('');
+    setUsrUsername('');
+    setUsrPassword('');
+    setUsrName('');
+    setUsrEmail('');
+    setUsrRole('Receptionist');
+    setUsrActive(true);
+    setIsEditingUser(false);
+  };
+
+  const handleEditUser = (user: User) => {
+    setUsrId(user.id);
+    setUsrUsername(user.username);
+    setUsrPassword(user.passwordHash);
+    setUsrName(user.name);
+    setUsrEmail(user.email);
+    setUsrRole(user.role);
+    setUsrActive(user.isActive);
+    setIsEditingUser(true);
+  };
+
+  const handleCancelUserEdit = () => {
+    setUsrId('');
+    setUsrUsername('');
+    setUsrPassword('');
+    setUsrName('');
+    setUsrEmail('');
+    setUsrRole('Receptionist');
+    setUsrActive(true);
+    setIsEditingUser(false);
+  };
+
+  const handleDeleteUser = (userId: string) => {
+    if (confirm('Are you sure you want to delete this user account permanently?')) {
+      const res = store.deleteUser(userId);
+      if (!res.success) {
+        alert(res.error);
+      }
+    }
+  };
+
+  const handleToggleUserActive = (user: User) => {
+    const updatedUser = { ...user, isActive: !user.isActive };
+    store.saveUser(updatedUser);
+  };
+
+  const handleToggleRolePermission = (role: Role, permissionId: Permission) => {
+    let updatedPermissions = [...role.permissions];
+    if (updatedPermissions.includes('all')) {
+      // If 'all', split it into other permissions to edit individually
+      updatedPermissions = ['view_dashboard', 'manage_guests', 'manage_rooms', 'manage_restaurant', 'manage_inventory', 'manage_accounting', 'manage_housekeeping', 'manage_settings'];
+    }
+
+    if (updatedPermissions.includes(permissionId)) {
+      updatedPermissions = updatedPermissions.filter(p => p !== permissionId);
+    } else {
+      updatedPermissions.push(permissionId);
+    }
+
+    store.saveRole({
+      ...role,
+      permissions: updatedPermissions
+    });
+  };
+
   const handleSaveEmployee = (e: React.FormEvent) => {
     e.preventDefault();
     if (!empFirst || !empLast || !empEmail || !empDept) return;
@@ -239,6 +349,16 @@ export default function HRFinance() {
             }`}
           >
             General Ledger & P&L
+          </button>
+          <button
+            onClick={() => setActiveTab('users')}
+            className={`px-4 py-2 text-xs font-semibold rounded-xl transition duration-150 border cursor-pointer ${
+              activeTab === 'users'
+                ? 'bg-[#1B4F72] text-white border-[#1B4F72] shadow-sm'
+                : 'bg-white text-gray-600 border-gray-150 hover:bg-gray-50'
+            }`}
+          >
+            Console & Account Users
           </button>
         </div>
       </div>
@@ -909,6 +1029,345 @@ export default function HRFinance() {
             </div>
           </div>
 
+        </div>
+      )}
+
+      {/* TAB 5: CONSOLE & ACCOUNT USERS */}
+      {activeTab === 'users' && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            
+            {/* User Create/Edit Form */}
+            <div className="bg-white p-6 rounded-2xl border border-gray-150 shadow-sm h-fit">
+              <h3 className="text-sm font-bold text-gray-800 mb-4 flex items-center">
+                {isEditingUser ? (
+                  <>
+                    <Edit className="h-4 w-4 mr-1.5 text-blue-600" /> Modify Operator Account
+                  </>
+                ) : (
+                  <>
+                    <UserPlus className="h-4 w-4 mr-1.5 text-green-600" /> Create Operator Account
+                  </>
+                )}
+              </h3>
+              
+              <form onSubmit={handleSaveUser} className="space-y-4">
+                <div>
+                  <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Full Operator Name</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Jane Doe"
+                    className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs focus:outline-none text-gray-800 font-semibold"
+                    value={usrName}
+                    onChange={(e) => setUsrName(e.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Corporate Email</label>
+                  <input
+                    type="email"
+                    required
+                    placeholder="j.doe@grandhorizon.com"
+                    className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs focus:outline-none"
+                    value={usrEmail}
+                    onChange={(e) => setUsrEmail(e.target.value)}
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Console Username</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="jdoe"
+                      className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs focus:outline-none font-mono"
+                      value={usrUsername}
+                      onChange={(e) => setUsrUsername(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Secure Password</label>
+                    <input
+                      type="text"
+                      placeholder={isEditingUser ? "Keep existing or type new" : "e.g. password123"}
+                      className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs focus:outline-none font-mono"
+                      value={usrPassword}
+                      onChange={(e) => setUsrPassword(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Operator System Role</label>
+                    <select
+                      className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs"
+                      value={usrRole}
+                      onChange={(e) => setUsrRole(e.target.value as any)}
+                    >
+                      <option value="Super Admin">Super Admin</option>
+                      <option value="CEO">CEO</option>
+                      <option value="Manager">Manager</option>
+                      <option value="Receptionist">Receptionist (Front Desk)</option>
+                      <option value="Accountant">Accountant (Ledgers)</option>
+                      <option value="Cashier">Cashier (Store POS)</option>
+                      <option value="Waiter">Waiter (Restaurant Orders)</option>
+                      <option value="Chef">Chef (Kitchen Queue)</option>
+                      <option value="Housekeeper">Housekeeper</option>
+                      <option value="Storekeeper">Storekeeper</option>
+                      <option value="Maintenance Staff">Maintenance Staff</option>
+                      <option value="Security">Security Agent</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Account State</label>
+                    <div className="flex items-center space-x-2 mt-2">
+                      <input
+                        type="checkbox"
+                        id="user_active_toggle"
+                        className="rounded border-gray-300 text-[#1B4F72] focus:ring-[#1B4F72] h-4 w-4 animate-none"
+                        checked={usrActive}
+                        onChange={(e) => setUsrActive(e.target.checked)}
+                      />
+                      <label htmlFor="user_active_toggle" className="text-xs text-gray-600 font-semibold cursor-pointer">
+                        Active Access
+                      </label>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex space-x-2 pt-2">
+                  <button
+                    type="submit"
+                    className="flex-1 py-2 bg-[#1B4F72] hover:bg-[#153E5B] text-white rounded-xl font-bold text-xs transition cursor-pointer"
+                  >
+                    {isEditingUser ? 'Update Operator' : 'Register Operator'}
+                  </button>
+                  {isEditingUser && (
+                    <button
+                      type="button"
+                      onClick={handleCancelUserEdit}
+                      className="px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-xl font-bold text-xs transition cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                  )}
+                </div>
+              </form>
+            </div>
+
+            {/* Operator Accounts Directory */}
+            <div className="bg-white p-6 rounded-2xl border border-gray-150 shadow-sm lg:col-span-2 space-y-4">
+              <h3 className="text-sm font-bold text-gray-800 pb-2 border-b border-b-gray-100">Registered Operators Directory ({db.users.length})</h3>
+              
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse font-sans">
+                  <thead>
+                    <tr className="border-b border-gray-150 text-[10px] font-bold text-gray-400 uppercase tracking-wider bg-gray-50/50">
+                      <th className="py-2.5 px-3">Operator Name</th>
+                      <th className="py-2.5 px-3">Credentials</th>
+                      <th className="py-2.5 px-3">System Role</th>
+                      <th className="py-2.5 px-3">Accessible Consoles</th>
+                      <th className="py-2.5 px-3">State</th>
+                      <th className="py-2.5 px-3 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 font-medium text-gray-700">
+                    {db.users.map(usr => {
+                      const roleObj = db.roles.find(r => r.name === usr.role);
+                      const hasAll = roleObj?.permissions.includes('all') || usr.role === 'Super Admin';
+                      
+                      return (
+                        <tr key={usr.id} className="hover:bg-gray-50/50">
+                          <td className="py-3 px-3">
+                            <strong className="text-gray-800 text-xs block font-bold">{usr.name}</strong>
+                            <span className="text-[10px] text-gray-400 block font-normal">{usr.email}</span>
+                          </td>
+                          <td className="py-3 px-3 font-mono">
+                            <span className="block text-gray-600 text-[11px]">User: <strong className="text-gray-800">{usr.username}</strong></span>
+                            <span className="block text-[10px] text-gray-400">Pass: {usr.passwordHash}</span>
+                          </td>
+                          <td className="py-3 px-3">
+                            <span className="bg-blue-50 text-[#1B4F72] text-[10px] font-bold px-2 py-0.5 rounded border border-blue-100 block w-fit">
+                              {usr.role}
+                            </span>
+                          </td>
+                          <td className="py-3 px-3 max-w-[200px]">
+                            {hasAll ? (
+                              <span className="text-[10px] bg-purple-50 text-purple-700 border border-purple-100 px-1.5 py-0.5 rounded font-bold">
+                                All Consoles (Full Access)
+                              </span>
+                            ) : (
+                              <div className="flex flex-wrap gap-1 max-h-[48px] overflow-y-auto">
+                                {roleObj?.permissions.map(perm => {
+                                  let label = '';
+                                  if (perm === 'view_dashboard') label = 'Exec';
+                                  else if (perm === 'manage_guests') label = 'Front';
+                                  else if (perm === 'manage_rooms') label = 'Rooms';
+                                  else if (perm === 'manage_restaurant') label = 'POS';
+                                  else if (perm === 'manage_inventory') label = 'Stock';
+                                  else if (perm === 'manage_accounting') label = 'HR/Ledger';
+                                  else if (perm === 'manage_housekeeping') label = 'Ops';
+                                  else if (perm === 'manage_settings') label = 'Settings';
+                                  
+                                  if (!label) return null;
+                                  return (
+                                    <span key={perm} className="text-[9px] bg-gray-100 text-gray-600 px-1 py-0.2 rounded font-semibold border border-gray-200">
+                                      {label}
+                                    </span>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </td>
+                          <td className="py-3 px-3">
+                            <button
+                              onClick={() => handleToggleUserActive(usr)}
+                              className={`px-2 py-0.5 rounded text-[10px] font-bold border transition ${
+                                usr.isActive 
+                                  ? 'bg-green-50 text-green-700 border-green-100 hover:bg-green-100' 
+                                  : 'bg-red-50 text-red-700 border-red-100 hover:bg-red-100'
+                              }`}
+                            >
+                              {usr.isActive ? 'Active' : 'Suspended'}
+                            </button>
+                          </td>
+                          <td className="py-3 px-3 text-right">
+                            <div className="flex items-center justify-end space-x-1.5">
+                              <button
+                                onClick={() => handleEditUser(usr)}
+                                className="p-1 bg-white hover:bg-gray-100 border border-gray-200 rounded text-gray-500 hover:text-blue-600 transition cursor-pointer"
+                                title="Edit Credentials"
+                              >
+                                <Edit className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteUser(usr.id)}
+                                className="p-1 bg-white hover:bg-gray-100 border border-gray-200 rounded text-gray-500 hover:text-red-600 transition cursor-pointer"
+                                title="Delete Operator"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+          </div>
+
+          {/* Role-Based Console Access Configurator */}
+          <div className="bg-white p-6 rounded-2xl border border-gray-150 shadow-sm space-y-4">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3 flex-wrap gap-4">
+              <div>
+                <h3 className="text-sm font-bold text-gray-800">Role-Based Console Access Control (RBAC)</h3>
+                <p className="text-[11px] text-gray-400 mt-0.5">Toggle which console buttons and modules are authorized and visible for each employee role.</p>
+              </div>
+
+              {/* Selector */}
+              <div className="flex items-center space-x-2">
+                <span className="text-xs text-gray-400 font-bold uppercase tracking-wider">Configure Role:</span>
+                <select
+                  className="px-3 py-1.5 bg-gray-50 border border-gray-200 rounded-xl text-xs font-semibold text-gray-700"
+                  value={selectedRoleName}
+                  onChange={(e) => setSelectedRoleName(e.target.value as any)}
+                >
+                  {db.roles.map(r => (
+                    <option key={r.id} value={r.name}>{r.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Config Board */}
+            {(() => {
+              const currentRoleObj = db.roles.find(r => r.name === selectedRoleName);
+              if (!currentRoleObj) return null;
+              
+              const isSuperAdmin = selectedRoleName === 'Super Admin';
+              
+              return (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
+                  <div className="p-5 bg-gray-50/50 rounded-2xl border border-gray-150 space-y-3">
+                    <h4 className="text-xs font-bold text-gray-800 uppercase tracking-widest flex items-center">
+                      <Shield className="h-4 w-4 mr-1.5 text-[#1B4F72]" /> System Role Description
+                    </h4>
+                    <p className="text-xs text-gray-500 font-medium leading-relaxed">
+                      {currentRoleObj.description}
+                    </p>
+                    <div className="pt-2">
+                      <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider block mb-1">Database State Name</span>
+                      <code className="text-[11px] font-mono px-2 py-1 bg-gray-100 border border-gray-200 rounded text-gray-700">
+                        {currentRoleObj.name}
+                      </code>
+                    </div>
+
+                    {isSuperAdmin && (
+                      <div className="p-3 bg-purple-50 border border-purple-150 rounded-xl text-xs text-purple-700 font-semibold flex items-start space-x-2 mt-4">
+                        <Lock className="h-4 w-4 text-purple-600 mt-0.5 flex-shrink-0" />
+                        <span>The **Super Admin** role has inherent wildcard root permission ('all') bypass. Its permissions cannot be modified.</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Permissions Checklist */}
+                  <div className="space-y-3">
+                    <h4 className="text-xs font-bold text-gray-800 uppercase tracking-widest">Authorized Consoles & Modules</h4>
+                    
+                    <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
+                      {[
+                        { id: 'view_dashboard', label: 'Executive Analytics & Shift Reconciliation', description: 'Dashboard view & shift reporting access.' },
+                        { id: 'manage_guests', label: 'Front Desk Office', description: 'Guests profiles, bookings, and check-ins.' },
+                        { id: 'manage_rooms', label: 'Room Inventory', description: 'Configuring room statuses and pricing.' },
+                        { id: 'manage_restaurant', label: 'Food & Dining POS', description: 'Restaurant order pads & kitchen lists.' },
+                        { id: 'manage_inventory', label: 'Procure & Stock', description: 'Store inventories and supplier request grids.' },
+                        { id: 'manage_accounting', label: 'HR, Payroll & General Ledgers', description: 'Staff directory, timesheets, payroll payslips, and transaction posting.' },
+                        { id: 'manage_housekeeping', label: 'Operations & Repairs', description: 'Cleaning assignments, laundry lists, and repairs requests.' },
+                        { id: 'manage_settings', label: 'Global Settings & Backups', description: 'Configure building infrastructure structure, theme, or printer profiles.' }
+                      ].map(permItem => {
+                        const isGranted = isSuperAdmin || currentRoleObj.permissions.includes('all') || currentRoleObj.permissions.includes(permItem.id as any);
+                        
+                        return (
+                          <div 
+                            key={permItem.id} 
+                            className={`p-3 rounded-xl border transition flex items-start justify-between ${
+                              isGranted 
+                                ? 'bg-green-50/40 border-green-200 text-gray-800' 
+                                : 'bg-gray-50/30 border-gray-150 text-gray-400'
+                            }`}
+                          >
+                            <div className="space-y-0.5 pr-4">
+                              <strong className={`text-xs block font-bold ${isGranted ? 'text-gray-800' : 'text-gray-400'}`}>
+                                {permItem.label}
+                              </strong>
+                              <p className="text-[10px] text-gray-400 font-medium">
+                                {permItem.description}
+                              </p>
+                            </div>
+                            
+                            <input
+                              type="checkbox"
+                              className="rounded border-gray-300 text-green-600 focus:ring-green-500 h-4 w-4 mt-0.5 cursor-pointer"
+                              checked={isGranted}
+                              disabled={isSuperAdmin}
+                              onChange={() => handleToggleRolePermission(currentRoleObj, permItem.id as Permission)}
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
         </div>
       )}
 

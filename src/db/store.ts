@@ -456,6 +456,35 @@ class HotelStore {
     this.saveToStorage();
   }
 
+  public deleteUser(id: string): { success: boolean; error?: string } {
+    if (this.activeUser?.id === id) {
+      return { success: false, error: 'Cannot delete the currently logged in user.' };
+    }
+    const user = this.db.users.find(u => u.id === id);
+    if (user?.role === 'Super Admin') {
+      const otherAdmins = this.db.users.filter(u => u.role === 'Super Admin' && u.id !== id);
+      if (otherAdmins.length === 0) {
+        return { success: false, error: 'Cannot delete the last Super Admin.' };
+      }
+    }
+    this.db.users = this.db.users.filter(u => u.id !== id);
+    this.addAuditLog('Delete User', 'Settings', `Deleted user account ${user?.username}`);
+    this.saveToStorage();
+    return { success: true };
+  }
+
+  public saveRole(role: Role): void {
+    const index = this.db.roles.findIndex(r => r.id === role.id);
+    if (index !== -1) {
+      this.db.roles[index] = role;
+      this.addAuditLog('Update Role Permissions', 'Settings', `Updated permissions for role ${role.name}`);
+    } else {
+      this.db.roles.push(role);
+      this.addAuditLog('Add Role', 'Settings', `Created new role ${role.name}`);
+    }
+    this.saveToStorage();
+  }
+
   // GUESTS
   public saveGuest(guest: Guest): void {
     const index = this.db.guests.findIndex(g => g.id === guest.id);
