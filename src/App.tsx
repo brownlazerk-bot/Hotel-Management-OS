@@ -45,6 +45,8 @@ export default function App() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
 
+  const profiles = store.getSavedProfiles();
+
   // Login Form States
   const [loginUser, setLoginUser] = useState('');
   const [loginPass, setLoginPass] = useState('');
@@ -256,18 +258,18 @@ export default function App() {
                 </div>
 
                 {loginError && (
-                  <p className="text-xs text-red-500 font-bold bg-red-50 p-2 rounded border border-red-100">{loginError}</p>
+                  <p className="text-xs text-red-500 font-bold bg-red-50 dark:bg-red-950/20 dark:text-red-400 p-2 rounded border border-red-100 dark:border-red-900/50">{loginError}</p>
                 )}
 
                 <button
                   type="submit"
-                  className="w-full py-2.5 bg-[#1B4F72] hover:bg-[#153E5B] text-white font-bold rounded-xl text-xs transition cursor-pointer"
+                  className="w-full py-2.5 bg-[#1B4F72] hover:bg-[#153E5B] text-white font-bold rounded-xl text-xs transition cursor-pointer flex items-center justify-center space-x-2"
                 >
-                  Authorize Connection
+                  <Lock className="h-3.5 w-3.5" />
+                  <span>Authorize Connection</span>
                 </button>
               </form>
             </div>
-
           </div>
 
         </div>
@@ -379,39 +381,107 @@ export default function App() {
       <div className="flex-grow flex relative">
         
         {/* DESKTOP SIDEBAR NAVIGATION */}
-        <aside className="w-64 bg-[#1B4F72] dark:bg-gray-950 border-r border-[#153E5B] dark:border-gray-800 p-4 space-y-1 hidden md:block shrink-0 text-white/80">
-          <span className="text-[10px] font-bold text-white/40 uppercase tracking-widest pl-3 block mb-4">Operations Console</span>
-          
-          <nav className="space-y-1">
-            {allowedTabs.map(tab => {
-              const Icon = tab.icon;
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-xs font-bold transition duration-150 cursor-pointer ${
-                    activeTab === tab.id
-                      ? 'bg-white/10 text-white shadow-sm border-r-4 border-[#E67E22] rounded-r-none'
-                      : 'text-white/70 hover:bg-white/5 hover:text-white'
-                  }`}
-                >
-                  <Icon className="h-4 w-4 text-[#E67E22]" />
-                  <span>{tab.label}</span>
-                </button>
-              );
-            })}
-          </nav>
+        <aside className="w-64 bg-[#1B4F72] dark:bg-gray-950 border-r border-[#153E5B] dark:border-gray-800 p-4 flex flex-col justify-between hidden md:flex shrink-0 text-white/80 h-[calc(100vh-70px)] sticky top-[70px]">
+          <div className="overflow-y-auto flex-grow space-y-1">
+            <span className="text-[10px] font-bold text-white/40 uppercase tracking-widest pl-3 block mb-4">Operations Console</span>
+            
+            <nav className="space-y-1">
+              {allowedTabs.map(tab => {
+                const Icon = tab.icon;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-xs font-bold transition duration-150 cursor-pointer ${
+                      activeTab === tab.id
+                        ? 'bg-white/10 text-white shadow-sm border-r-4 border-[#E67E22] rounded-r-none'
+                        : 'text-white/70 hover:bg-white/5 hover:text-white'
+                    }`}
+                  >
+                    <Icon className="h-4 w-4 text-[#E67E22]" />
+                    <span>{tab.label}</span>
+                  </button>
+                );
+              })}
+            </nav>
+          </div>
+
+          {/* Sidebar bottom business switching panel */}
+          <div className="mt-4 pt-4 border-t border-white/10 space-y-3 shrink-0">
+            <div>
+              <span className="text-[9px] font-bold text-white/40 uppercase tracking-widest pl-1 block mb-1.5">Switch Business / Hotel</span>
+              <div className="space-y-1 max-h-36 overflow-y-auto pr-1">
+                {profiles.map(p => (
+                  <div key={p.id} className="group flex items-center justify-between rounded-lg px-2 py-1 text-xs transition bg-white/5 hover:bg-white/10">
+                    <button
+                      type="button"
+                      disabled={p.active}
+                      onClick={() => {
+                        if (confirm(`Switch console environment to "${p.name}"?`)) {
+                          store.switchBusiness(p.id);
+                        }
+                      }}
+                      className={`truncate text-left flex-grow font-semibold flex items-center space-x-1.5 transition ${p.active ? 'text-white font-bold' : 'text-white/60 hover:text-white cursor-pointer'}`}
+                      title={p.name}
+                    >
+                      <span className="text-xs">🏨</span>
+                      <span className="truncate">{p.name}</span>
+                    </button>
+                    {p.active ? (
+                      <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full shrink-0" />
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (confirm(`Are you sure you want to completely delete business "${p.name}"?`)) {
+                            store.deleteBusiness(p.id);
+                          }
+                        }}
+                        className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-300 text-xs font-black px-1 cursor-pointer"
+                        title="Delete profile"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <button
+                type="button"
+                onClick={() => {
+                  if (confirm('Transition to the Setup Wizard to register a new business or hotel? Your current records are saved.')) {
+                    store.prepareAddNewBusiness();
+                  }
+                }}
+                className="w-full py-1.5 bg-[#E67E22] hover:bg-[#D35400] text-white font-bold rounded-lg text-[10px] transition cursor-pointer text-center block"
+              >
+                + Add Other Business
+              </button>
+
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="w-full py-1.5 bg-red-600/25 hover:bg-red-600/40 text-red-200 border border-red-500/30 font-bold rounded-lg text-[10px] transition cursor-pointer flex items-center justify-center space-x-1.5"
+              >
+                <LogOut className="h-3 w-3" />
+                <span>Logout Terminal</span>
+              </button>
+            </div>
+          </div>
         </aside>
 
         {/* MOBILE SIDEBAR MODAL OVERLAY */}
         {mobileMenuOpen && (
           <div className="fixed inset-0 bg-black/50 z-50 md:hidden flex">
-            <div className="w-64 bg-white dark:bg-gray-900 h-full p-5 flex flex-col justify-between">
+            <div className="w-64 bg-white dark:bg-gray-900 h-full p-5 flex flex-col justify-between overflow-y-auto">
               <div>
-                <div className="flex items-center justify-between mb-6 pb-2 border-b border-gray-100">
-                  <span className="text-sm font-bold text-gray-800">Hotel OS menu</span>
+                <div className="flex items-center justify-between mb-6 pb-2 border-b border-gray-100 dark:border-gray-800">
+                  <span className="text-sm font-bold text-gray-800 dark:text-white font-editorial">Hotel OS Menu</span>
                   <button onClick={() => setMobileMenuOpen(false)}>
-                    <X className="h-5 w-5 text-gray-500" />
+                    <X className="h-5 w-5 text-gray-500 dark:text-gray-400" />
                   </button>
                 </div>
 
@@ -428,7 +498,7 @@ export default function App() {
                         className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-xs font-bold ${
                           activeTab === tab.id
                             ? 'bg-[#1B4F72] text-white'
-                            : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50'
+                            : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
                         }`}
                       >
                         <Icon className="h-4.5 w-4.5" />
@@ -439,8 +509,79 @@ export default function App() {
                 </nav>
               </div>
 
-              <div className="pt-4 border-t border-gray-100 text-xs">
-                <span>Logged in: <strong>{activeUser.name}</strong></span>
+              <div className="pt-4 border-t border-gray-100 dark:border-gray-800 text-xs space-y-4">
+                <div>
+                  <span className="block text-[9px] font-bold text-gray-400 uppercase tracking-widest mb-2">Switch Business / Hotel</span>
+                  <div className="space-y-1 max-h-32 overflow-y-auto pr-1">
+                    {profiles.map(p => (
+                      <div key={p.id} className="flex items-center justify-between rounded-lg px-2.5 py-1.5 bg-gray-50 dark:bg-gray-800 text-xs font-semibold">
+                        <button
+                          type="button"
+                          disabled={p.active}
+                          onClick={() => {
+                            if (confirm(`Switch console to "${p.name}"?`)) {
+                              store.switchBusiness(p.id);
+                              setMobileMenuOpen(false);
+                            }
+                          }}
+                          className={`truncate text-left flex-grow transition ${
+                            p.active
+                              ? 'text-emerald-600 dark:text-emerald-400 font-bold'
+                              : 'text-gray-600 dark:text-gray-300'
+                          }`}
+                        >
+                          🏨 {p.name}
+                        </button>
+                        {p.active ? (
+                          <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full" />
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (confirm(`Completely delete business "${p.name}"?`)) {
+                                store.deleteBusiness(p.id);
+                              }
+                            }}
+                            className="text-red-500 hover:text-red-700 text-xs font-black px-1"
+                          >
+                            ×
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (confirm('Create and register another business or hotel? Current data is saved.')) {
+                        store.prepareAddNewBusiness();
+                        setMobileMenuOpen(false);
+                      }
+                    }}
+                    className="w-full flex items-center justify-center space-x-1.5 py-2 bg-[#E67E22] hover:bg-[#D35400] text-white text-xs font-bold rounded-xl transition cursor-pointer"
+                  >
+                    <span>+ Add Other Business</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleLogout();
+                      setMobileMenuOpen(false);
+                    }}
+                    className="w-full flex items-center justify-center space-x-1.5 py-2 bg-red-50 dark:bg-red-950/20 hover:bg-red-100 dark:hover:bg-red-900/30 text-red-600 dark:text-red-400 text-xs font-bold rounded-xl transition cursor-pointer border border-red-200 dark:border-red-900/30"
+                  >
+                    <LogOut className="h-3.5 w-3.5" />
+                    <span>Logout Terminal</span>
+                  </button>
+                </div>
+
+                <div className="pt-2 border-t border-gray-100 dark:border-gray-800">
+                  <span>Logged in: <strong className="text-gray-800 dark:text-white">{activeUser.name}</strong></span>
+                </div>
               </div>
             </div>
           </div>

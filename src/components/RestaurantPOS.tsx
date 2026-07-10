@@ -1334,15 +1334,72 @@ export default function RestaurantPOS() {
               {/* Cashier Order placing side panel (Steps 1 to 5) */}
               <div className="bg-[#F8F9FA] p-5 rounded-2xl border border-gray-150 flex flex-col justify-between h-fit space-y-4">
                 <div>
-                  <div className="pb-3 border-b border-gray-200 mb-4">
-                    <h3 className="text-sm font-black text-slate-800">
-                      {editingOrderId ? '✏️ Edit Customer Order' : '📝 Create Customer Order'}
-                    </h3>
-                    <p className="text-[10px] text-slate-400">Complete service type and guest instructions.</p>
+                  <div className="pb-3 border-b border-gray-200 mb-4 flex items-center justify-between">
+                    <div>
+                      <h3 className="text-sm font-black text-slate-800">
+                        {editingOrderId ? '✏️ Edit Customer Order' : '📝 Create Customer Order'}
+                      </h3>
+                      <p className="text-[10px] text-slate-400">Complete service type and guest instructions.</p>
+                    </div>
+                    {editingOrderId && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCart([]);
+                          setSelectedTableId('');
+                          setRoomNumber('');
+                          setCustomerName('');
+                          setGuestCount(1);
+                          setSpecialInstructions('');
+                          setEditingOrderId(null);
+                          setPosDiscount(0);
+                          setPrintToast('Switched back to Create Order mode.');
+                        }}
+                        className="text-[9px] bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold px-2 py-1 rounded-lg transition"
+                      >
+                        Reset / New
+                      </button>
+                    )}
                   </div>
 
                   {/* Order Type Select */}
                   <div className="space-y-3.5">
+                    {/* Quick Active Order Selector */}
+                    <div>
+                      <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Choose Existing Order to Edit</label>
+                      <select
+                        value={editingOrderId || ''}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (!val) {
+                            setCart([]);
+                            setSelectedTableId('');
+                            setRoomNumber('');
+                            setCustomerName('');
+                            setGuestCount(1);
+                            setSpecialInstructions('');
+                            setEditingOrderId(null);
+                            setPosDiscount(0);
+                          } else {
+                            const found = db.restaurantOrders.find(o => o.id === val);
+                            if (found) {
+                              loadOrderForEditing(found);
+                            }
+                          }
+                        }}
+                        className="w-full px-2.5 py-1.5 bg-white border border-gray-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:border-[#1B4F72] font-semibold"
+                      >
+                        <option value="">-- Start New / Create New Order --</option>
+                        {db.restaurantOrders
+                          .filter(o => o.status !== 'Completed' && o.status !== 'Paid' && o.status !== 'Cancelled')
+                          .map(o => (
+                            <option key={o.id} value={o.id}>
+                              {o.orderNumber || o.id.slice(-4)} - {o.customerName || 'Walk-in'} (${o.total.toFixed(2)}) [{o.status}]
+                            </option>
+                          ))}
+                      </select>
+                    </div>
+
                     <div>
                       <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Service Type</label>
                       <div className="grid grid-cols-3 gap-1 bg-gray-200/50 p-1 rounded-xl">

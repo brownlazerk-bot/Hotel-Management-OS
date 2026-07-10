@@ -187,9 +187,179 @@ class HotelStore {
   private saveToStorage(): void {
     try {
       localStorage.setItem('hotel_os_database', JSON.stringify(this.db));
+      
+      // If initialized, keep its profile backup up to date as well!
+      if (this.db && this.db.isInitialized && this.db.settings?.profile?.name) {
+        const currentId = 'prof_' + this.db.settings.profile.name.replace(/\s+/g, '_').toLowerCase();
+        localStorage.setItem('hotel_os_db_' + currentId, JSON.stringify(this.db));
+        
+        // Ensure it is in the index
+        const indexStr = localStorage.getItem('hotel_os_profiles_index');
+        let index: { id: string; name: string; slogan: string }[] = [];
+        if (indexStr) {
+          try {
+            index = JSON.parse(indexStr);
+          } catch (err) {
+            index = [];
+          }
+        }
+        
+        const existingIdx = index.findIndex(p => p.name.toLowerCase() === this.db.settings.profile.name.toLowerCase());
+        const newProfile = {
+          id: currentId,
+          name: this.db.settings.profile.name,
+          slogan: this.db.settings.profile.slogan || ''
+        };
+        
+        if (existingIdx !== -1) {
+          index[existingIdx] = newProfile;
+        } else {
+          index.push(newProfile);
+        }
+        localStorage.setItem('hotel_os_profiles_index', JSON.stringify(index));
+      }
+      
       this.notify();
     } catch (e) {
       console.error('Failed to save database to localStorage', e);
+    }
+  }
+
+  // Get all saved business/hotel profiles
+  public getSavedProfiles(): { id: string; name: string; slogan: string; active: boolean }[] {
+    try {
+      const indexStr = localStorage.getItem('hotel_os_profiles_index');
+      let index: { id: string; name: string; slogan: string }[] = [];
+      if (indexStr) {
+        try {
+          index = JSON.parse(indexStr);
+        } catch (err) {
+          index = [];
+        }
+      }
+      
+      // If index is empty but current db is initialized, add the current one to the index
+      if (index.length === 0 && this.db && this.db.isInitialized && this.db.settings?.profile?.name) {
+        const currentId = 'prof_' + this.db.settings.profile.name.replace(/\s+/g, '_').toLowerCase();
+        const currentProfile = {
+          id: currentId,
+          name: this.db.settings.profile.name,
+          slogan: this.db.settings.profile.slogan || ''
+        };
+        index = [currentProfile];
+        localStorage.setItem('hotel_os_profiles_index', JSON.stringify(index));
+        // Save the current db data under its specific key
+        localStorage.setItem('hotel_os_db_' + currentId, JSON.stringify(this.db));
+      }
+      
+      return index.map(p => {
+        const isCurrent = this.db && this.db.isInitialized && this.db.settings?.profile?.name.toLowerCase() === p.name.toLowerCase();
+        return {
+          ...p,
+          active: !!isCurrent
+        };
+      });
+    } catch (e) {
+      console.error('Error getting saved profiles', e);
+      return [];
+    }
+  }
+
+  // Set up store to add a new business or hotel
+  public prepareAddNewBusiness(): void {
+    // 1. Save current active db to its profile key (if initialized)
+    if (this.db && this.db.isInitialized && this.db.settings?.profile?.name) {
+      const currentId = 'prof_' + this.db.settings.profile.name.replace(/\s+/g, '_').toLowerCase();
+      localStorage.setItem('hotel_os_db_' + currentId, JSON.stringify(this.db));
+      
+      // Ensure it is in the index
+      const indexStr = localStorage.getItem('hotel_os_profiles_index');
+      let index: { id: string; name: string; slogan: string }[] = [];
+      if (indexStr) {
+        try {
+          index = JSON.parse(indexStr);
+        } catch (err) {
+          index = [];
+        }
+      }
+      if (!index.some(p => p.name.toLowerCase() === this.db.settings.profile.name.toLowerCase())) {
+        index.push({
+          id: currentId,
+          name: this.db.settings.profile.name,
+          slogan: this.db.settings.profile.slogan || ''
+        });
+        localStorage.setItem('hotel_os_profiles_index', JSON.stringify(index));
+      }
+    }
+    
+    // 2. Clear main storage database key to reset back to SetupWizard
+    localStorage.removeItem('hotel_os_database');
+    sessionStorage.removeItem('hotel_os_session');
+    
+    // 3. Reset internal memory
+    this.db = JSON.parse(JSON.stringify(INITIAL_STATE));
+    this.activeUser = null;
+    this.notify();
+  }
+
+  // Switch to a different saved business/hotel profile
+  public switchBusiness(profileId: string): { success: boolean; error?: string } {
+    try {
+      // 1. Save current active db to its profile key (if initialized)
+      if (this.db && this.db.isInitialized && this.db.settings?.profile?.name) {
+        const currentId = 'prof_' + this.db.settings.profile.name.replace(/\s+/g, '_').toLowerCase();
+        localStorage.setItem('hotel_os_db_' + currentId, JSON.stringify(this.db));
+      }
+      
+      // 2. Load the target db
+      const targetDbStr = localStorage.getItem('hotel_os_db_' + profileId);
+      if (!targetDbStr) {
+        return { success: false, error: 'Target business profile not found' };
+      }
+      
+      const targetDb = JSON.parse(targetDbStr);
+      
+      // 3. Set the target db as active
+      localStorage.setItem('hotel_os_database', JSON.stringify(targetDb));
+      this.db = targetDb;
+      
+      // 4. Load the target admin user (or any user that is active/available)
+      const usersList = targetDb.users || [];
+      const superAdmin = usersList.find((u: any) => u.role === 'Super Admin') || usersList[0] || null;
+      if (superAdmin) {
+        this.activeUser = superAdmin;
+        sessionStorage.setItem('hotel_os_session', JSON.stringify(superAdmin));
+      } else {
+        this.activeUser = null;
+        sessionStorage.removeItem('hotel_os_session');
+      }
+      
+      this.notify();
+      return { success: true };
+    } catch (e) {
+      console.error('Error switching business', e);
+      return { success: false, error: 'Failed to load business profile' };
+    }
+  }
+
+  // Delete a business profile
+  public deleteBusiness(profileId: string): void {
+    try {
+      // Remove database storage
+      localStorage.removeItem('hotel_os_db_' + profileId);
+      
+      // Remove from index
+      const indexStr = localStorage.getItem('hotel_os_profiles_index');
+      if (indexStr) {
+        try {
+          const index = JSON.parse(indexStr);
+          const filtered = index.filter((p: any) => p.id !== profileId);
+          localStorage.setItem('hotel_os_profiles_index', JSON.stringify(filtered));
+        } catch (err) {}
+      }
+      this.notify();
+    } catch (e) {
+      console.error('Error deleting business profile', e);
     }
   }
 
