@@ -269,6 +269,100 @@ export default function App() {
                   <span>Authorize Connection</span>
                 </button>
               </form>
+
+              {/* Business Profile Selection & Creation */}
+              <div className="mt-6 pt-5 border-t border-gray-100 dark:border-gray-700 space-y-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold text-gray-400 dark:text-gray-300 uppercase tracking-wider">
+                    Business Profile Management
+                  </span>
+                  <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold flex items-center space-x-1">
+                    <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse inline-block"></span>
+                    <span>Active: {db.settings.profile.name}</span>
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {/* Select Existing Business dropdown */}
+                  <div className="space-y-1">
+                    <label className="block text-[9px] font-bold text-gray-400 uppercase tracking-wider">Switch to Existing</label>
+                    <select
+                      value={profiles.find(p => p.active)?.id || ''}
+                      onChange={(e) => {
+                        const targetId = e.target.value;
+                        if (targetId) {
+                          const res = store.switchBusiness(targetId);
+                          if (res.success) {
+                            setLoginError('');
+                            setLoginUser('');
+                            setLoginPass('');
+                          }
+                        }
+                      }}
+                      className="w-full px-2.5 py-1.5 bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 border border-gray-200 dark:border-gray-600 rounded-lg text-xs font-semibold text-gray-700 dark:text-gray-200 cursor-pointer focus:outline-none transition"
+                    >
+                      {profiles.map(p => (
+                        <option key={p.id} value={p.id}>
+                          🏨 {p.name} {p.active ? '(Active)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Register New Business button */}
+                  <div className="flex flex-col justify-end">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (confirm('Do you want to launch the Setup Wizard to register and configure a brand new business/hotel? Your current business data remains safely saved and you can switch back at any time.')) {
+                          store.prepareAddNewBusiness();
+                        }
+                      }}
+                      className="w-full px-3 py-1.5 bg-amber-50 dark:bg-amber-950/20 hover:bg-amber-100 dark:hover:bg-amber-900/30 border border-amber-200 dark:border-amber-900/50 text-amber-700 dark:text-amber-400 font-bold rounded-lg text-xs cursor-pointer transition text-center flex items-center justify-center space-x-1"
+                    >
+                      <Building className="h-3.5 w-3.5" />
+                      <span>+ Register New Business</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Show list of registered business profiles for quick access if multiple */}
+                {profiles.length > 1 && (
+                  <div className="bg-gray-50 dark:bg-gray-900/40 p-2.5 rounded-xl border border-gray-100 dark:border-gray-800 space-y-1.5">
+                    <span className="block text-[8px] text-gray-400 dark:text-gray-500 font-bold uppercase tracking-wider">Quick Switch Between Saved Businesses:</span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {profiles.map(p => (
+                        <div key={p.id} className="inline-flex items-center bg-white dark:bg-gray-800 px-2 py-1 rounded-lg border border-gray-150 dark:border-gray-700 text-[10px] font-semibold shadow-xs space-x-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              store.switchBusiness(p.id);
+                            }}
+                            className={`hover:text-blue-500 transition cursor-pointer truncate max-w-[130px] ${p.active ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-gray-600 dark:text-gray-300'}`}
+                            title={`Switch to ${p.name}`}
+                          >
+                            🏨 {p.name}
+                          </button>
+                          {!p.active && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (confirm(`Are you sure you want to completely delete the business profile "${p.name}"? This will delete all its local records!`)) {
+                                  store.deleteBusiness(p.id);
+                                }
+                              }}
+                              className="text-red-400 hover:text-red-600 font-black px-0.5 ml-1 transition cursor-pointer"
+                              title="Delete profile"
+                            >
+                              ×
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 

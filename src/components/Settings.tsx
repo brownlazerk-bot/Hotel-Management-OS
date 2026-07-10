@@ -20,6 +20,7 @@ import {
 export default function SettingsComponent() {
   const [activeTab, setActiveTab] = useState<'profile' | 'structure' | 'audit' | 'reset'>('profile');
   const db = store.getDb();
+  const [profiles, setProfiles] = useState(store.getSavedProfiles());
 
   // Profile States
   const [name, setName] = useState(db.settings.profile.name);
@@ -451,6 +452,69 @@ export default function SettingsComponent() {
                 <Sparkles className="h-4 w-4 mr-1.5" /> Re-Seed Sandbox Simulator
               </button>
             </div>
+          </div>
+
+          {/* Delete Saved Business Profiles Forever */}
+          <div className="mt-6 pt-6 border-t border-gray-100 dark:border-gray-700 space-y-4">
+            <div className="flex items-center space-x-2 text-red-600 dark:text-red-400">
+              <Trash2 className="h-5 w-5" />
+              <h4 className="text-sm font-bold font-editorial">Delete Registered Businesses Forever</h4>
+            </div>
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              Permanently delete other registered business/hotel profiles from this device's local storage. This action is irreversible and deletes all associated rooms, orders, settings, and ledger history for that profile.
+            </p>
+
+            {profiles.length <= 1 ? (
+              <div className="bg-gray-50 dark:bg-gray-700/30 p-4 rounded-xl border border-gray-150 dark:border-gray-700 text-center text-xs text-gray-400 dark:text-gray-400 font-semibold">
+                No other business profiles registered on this device.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {profiles.map(p => (
+                  <div 
+                    key={p.id} 
+                    className={`flex items-center justify-between p-3.5 rounded-xl border transition ${
+                      p.active 
+                        ? 'bg-emerald-50/50 dark:bg-emerald-950/10 border-emerald-200 dark:border-emerald-900/30' 
+                        : 'bg-white dark:bg-gray-850/20 border-gray-250 dark:border-gray-700 hover:border-red-200 dark:hover:border-red-900/40'
+                    }`}
+                  >
+                    <div className="space-y-0.5 truncate pr-2">
+                      <div className="flex items-center space-x-2">
+                        <span className="text-sm font-bold text-gray-800 dark:text-white truncate">{p.name}</span>
+                        {p.active && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[9px] font-black bg-emerald-100 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300">
+                            Active
+                          </span>
+                        )}
+                      </div>
+                      <span className="block text-[10px] text-gray-400 dark:text-gray-500 font-mono truncate">ID: {p.id}</span>
+                    </div>
+
+                    {!p.active ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (confirm(`⚠️ CRITICAL ACTION: Are you absolutely certain you want to permanently delete the business profile "${p.name}"? All room states, reservation ledgers, POS orders, and configuration profiles for this business will be DELETED FOREVER. This cannot be undone!`)) {
+                            store.deleteBusiness(p.id);
+                            setProfiles(store.getSavedProfiles());
+                            alert(`Business profile "${p.name}" has been deleted forever.`);
+                          }
+                        }}
+                        className="px-3 py-1.5 bg-red-50 dark:bg-red-950/30 hover:bg-red-100 dark:hover:bg-red-900/50 border border-red-200 dark:border-red-900/40 text-red-600 dark:text-red-400 font-bold rounded-lg text-[10px] cursor-pointer transition flex items-center space-x-1"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                        <span>Delete Forever</span>
+                      </button>
+                    ) : (
+                      <span className="text-[10px] font-bold text-gray-400 dark:text-gray-500 italic pr-1">
+                        Cannot Delete Active
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
