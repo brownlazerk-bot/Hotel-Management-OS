@@ -23,8 +23,86 @@ import {
 } from 'lucide-react';
 
 export default function RestaurantPOS() {
-  const [activeTab, setActiveTab] = useState<'tables' | 'terminal' | 'kitchen' | 'menu'>('tables');
+  const [activeTab, setActiveTab] = useState<'tables' | 'terminal' | 'kitchen' | 'menu' | 'shift'>('tables');
   const db = store.getDb();
+
+  const isDrinkItem = (menuItemId: string): boolean => {
+    const menuItem = db.menuItems.find(m => m.id === menuItemId);
+    if (!menuItem) return false;
+    const cat = menuItem.category.toLowerCase();
+    return cat.includes('beverage') || cat.includes('alcoholic') || cat.includes('drink');
+  };
+
+  // Simulated thermal printer queue
+  const [printerJobs, setPrinterJobs] = useState<Array<{
+    id: string;
+    type: 'kitchen' | 'guest';
+    title: string;
+    content: string;
+    timestamp: string;
+    status: 'Printed' | 'Spooling';
+  }>>([]);
+  const [showPrinterSpooler, setShowPrinterSpooler] = useState(true);
+  const [printToast, setPrintToast] = useState<string | null>(null);
+
+  const triggerPrinterTicket = (order: RestaurantOrder, type: 'kitchen' | 'guest', customTitle?: string) => {
+    const table = db.restaurantTables.find(t => t.id === order.tableId);
+    const tableLabel = table ? table.tableNumber : 'Walk-In Customer';
+    const timestamp = new Date().toLocaleTimeString();
+    
+    // Filter items if it's for kitchen
+    const printedItems = type === 'kitchen'
+      ? order.items.filter(it => !isDrinkItem(it.menuItemId))
+      : order.items;
+
+    if (type === 'kitchen' && printedItems.length === 0) {
+      return; // Do not print kitchen ticket if no food items
+    }
+
+    // Create thermal receipt formatted text
+    let text = `================================\n`;
+    text += `       CASCADE FOOD & DINING    \n`;
+    text += `     SECURE THERMAL RECEIPT     \n`;
+    text += `================================\n`;
+    text += `Type:     ${type === 'kitchen' ? '🔥 KITCHEN TICK' : '📄 GUEST BILL'}\n`;
+    text += `ID:       ${order.id}\n`;
+    text += `Table:    ${tableLabel}\n`;
+    text += `Time:     ${new Date().toLocaleTimeString()}\n`;
+    text += `Staff:    ${store.getActiveUser()?.name || 'Operator'}\n`;
+    text += `--------------------------------\n`;
+    printedItems.forEach(it => {
+      const line = `${it.quantity}x ${it.name}`;
+      const padding = 32 - line.length;
+      text += `${line}${padding > 0 ? ' '.repeat(padding) : ''}\n`;
+    });
+    text += `--------------------------------\n`;
+    if (type === 'guest') {
+      text += `Subtotal: ${store.formatMoney(order.subtotal)}\n`;
+      text += `Tax:      ${store.formatMoney(order.tax)}\n`;
+      if (order.discount > 0) {
+        text += `Discount: -${store.formatMoney(order.discount)}\n`;
+      }
+      text += `TOTAL:    ${store.formatMoney(order.total)}\n`;
+    } else {
+      text += `* SEND TO MAIN LINE EXPEDITER *\n`;
+    }
+    text += `================================\n`;
+
+    const newJob = {
+      id: `print_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+      type,
+      title: customTitle || `${type === 'kitchen' ? '🔥 Kitchen ticket dispatched' : '📄 Guest receipt printed'} - ${tableLabel}`,
+      content: text,
+      timestamp,
+      status: 'Printed' as const
+    };
+
+    setPrinterJobs(prev => [newJob, ...prev]);
+    setPrintToast(newJob.title);
+    setTimeout(() => {
+      setPrintToast(null);
+    }, 4500);
+  };
 
   // Active POS cart building
   const [selectedTableId, setSelectedTableId] = useState<string>('');
@@ -142,6 +220,9 @@ export default function RestaurantPOS() {
 
     store.addRestaurantOrder(order);
 
+    // Automatically trigger guest ticket print in terminal
+    triggerPrinterTicket(order, 'guest', `📄 Bill Ticket Created - ${order.tableId ? db.restaurantTables.find(t => t.id === order.tableId)?.tableNumber : 'Walk-In'}`);
+
     // Clear state
     setCart([]);
     setSelectedTableId('');
@@ -191,6 +272,18 @@ export default function RestaurantPOS() {
 
   const handleUpdateOrderStatus = (id: string, status: OrderStatus) => {
     store.updateOrderStatus(id, status);
+
+    // Auto-printer triggers based on workflow activation
+    const order = db.restaurantOrders.find(o => o.id === id);
+    if (order) {
+      if (status === 'In Kitchen') {
+        triggerPrinterTicket(order, 'kitchen', `🔥 Kitchen Order Sent to Hot-Line - ${order.id}`);
+      } else if (status === 'Ready') {
+        triggerPrinterTicket(order, 'guest', `🔔 Food Ready Alert - ${order.id}`);
+      } else if (status === 'Paid') {
+        triggerPrinterTicket(order, 'guest', `✅ Guest Settle Check Receipt - ${order.id}`);
+      }
+    }
   };
 
   // Shift aggregation helper
@@ -650,80 +743,151 @@ export default function RestaurantPOS() {
 
       {/* TAB 3: KITCHEN DISPLAY QUEUE (KDS) */}
       {activeTab === 'kitchen' && (
-        <div className="space-y-4">
-          <h3 className="text-sm font-bold text-gray-800 pb-2 border-b border-gray-100">Live Kitchen Queue (KDS Monitor)</h3>
-          
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {db.restaurantOrders
-              .filter(o => o.status !== 'Paid' && o.status !== 'Cancelled')
-              .map(order => {
-                const table = db.restaurantTables.find(t => t.id === order.tableId);
+        <div className="grid grid-cols-1 xl:grid-cols-4 gap-6 animate-fadeIn">
+          {/* Main Kitchen Board Column */}
+          <div className="xl:col-span-3 space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-gray-100">
+              <div>
+                <h3 className="text-sm font-bold text-gray-800">Live Kitchen Queue (KDS Monitor)</h3>
+                <p className="text-[11px] text-gray-400">Back-of-house production dashboard. Activated orders trigger instant printer ticket dispatch.</p>
+              </div>
+              <button
+                onClick={() => setShowPrinterSpooler(!showPrinterSpooler)}
+                className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 border border-gray-300 rounded-xl text-xs font-bold text-gray-700 flex items-center space-x-1.5"
+              >
+                <Printer className="h-3.5 w-3.5 text-gray-500" />
+                <span>{showPrinterSpooler ? 'Hide Printer Spool' : 'Show Thermal Printer Feed'}</span>
+              </button>
+            </div>
+            
+            {db.restaurantOrders.filter(o => o.status !== 'Paid' && o.status !== 'Cancelled').filter(order => order.items.some(it => !isDrinkItem(it.menuItemId))).length === 0 ? (
+              <div className="py-16 text-center text-sm text-gray-400 bg-gray-50/50 rounded-2xl border border-dashed border-gray-200">
+                No active kitchen tickets currently. Place a new order from the tables plan or POS touch terminal.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {db.restaurantOrders
+                  .filter(o => o.status !== 'Paid' && o.status !== 'Cancelled')
+                  .filter(order => order.items.some(it => !isDrinkItem(it.menuItemId)))
+                  .map(order => {
+                    const table = db.restaurantTables.find(t => t.id === order.tableId);
 
-                return (
-                  <div key={order.id} className="bg-white rounded-2xl border border-gray-150 shadow-sm overflow-hidden flex flex-col justify-between">
-                    {/* Card Header */}
-                    <div className="bg-[#1B4F72] text-white p-3.5 flex items-center justify-between">
-                      <div>
-                        <strong className="text-xs block font-bold">Order ID: {order.id}</strong>
-                        <span className="text-[10px] text-blue-100 font-semibold">{table?.tableNumber || 'Walk-In Customer'}</span>
-                      </div>
-                      <span className={`px-2 py-0.5 rounded text-[9px] font-bold ${
-                        order.status === 'Pending' ? 'bg-red-500 text-white' :
-                        order.status === 'In Kitchen' ? 'bg-[#E67E22] text-white' :
-                        'bg-green-500 text-white'
-                      }`}>
-                        {order.status}
-                      </span>
-                    </div>
-
-                    {/* Food list items */}
-                    <div className="p-4 flex-grow space-y-2 text-xs">
-                      {order.items.map((it, idx) => (
-                        <div key={idx} className="flex justify-between font-semibold text-gray-700">
-                          <span>{it.quantity} x {it.name}</span>
+                    return (
+                      <div key={order.id} className="bg-white rounded-2xl border border-gray-150 shadow-sm overflow-hidden flex flex-col justify-between">
+                        {/* Card Header */}
+                        <div className="bg-[#1B4F72] text-white p-3.5 flex items-center justify-between">
+                          <div>
+                            <strong className="text-xs block font-bold">Order ID: {order.id}</strong>
+                            <span className="text-[10px] text-blue-100 font-semibold">{table?.tableNumber || 'Walk-In Customer'}</span>
+                          </div>
+                          <span className={`px-2 py-0.5 rounded text-[9px] font-bold ${
+                            order.status === 'Pending' ? 'bg-red-500 text-white animate-pulse' :
+                            order.status === 'In Kitchen' ? 'bg-[#E67E22] text-white' :
+                            'bg-green-500 text-white'
+                          }`}>
+                            {order.status}
+                          </span>
                         </div>
-                      ))}
-                    </div>
 
-                    {/* Footer operations */}
-                    <div className="bg-gray-50 p-3 border-t border-gray-150 flex space-x-1.5">
-                      {order.status === 'Pending' && (
-                        <button
-                          onClick={() => handleUpdateOrderStatus(order.id, 'In Kitchen')}
-                          className="w-full text-center py-1.5 bg-[#E67E22] hover:bg-[#D35400] text-white font-bold rounded-lg text-[10px] cursor-pointer"
-                        >
-                          Send to Kitchen
-                        </button>
-                      )}
-                      {order.status === 'In Kitchen' && (
-                        <button
-                          onClick={() => handleUpdateOrderStatus(order.id, 'Ready')}
-                          className="w-full text-center py-1.5 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg text-[10px] cursor-pointer"
-                        >
-                          Mark Ready
-                        </button>
-                      )}
-                      {order.status === 'Ready' && (
-                        <button
-                          onClick={() => handleUpdateOrderStatus(order.id, 'Served')}
-                          className="w-full text-center py-1.5 bg-[#1B4F72] hover:bg-[#153E5B] text-white font-bold rounded-lg text-[10px] cursor-pointer"
-                        >
-                          Mark Served
-                        </button>
-                      )}
-                      {order.status === 'Served' && (
-                        <button
-                          onClick={() => handleUpdateOrderStatus(order.id, 'Paid')}
-                          className="w-full text-center py-1.5 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg text-[10px] cursor-pointer"
-                        >
-                          Bill Check Paid
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
+                        {/* Food list items */}
+                        <div className="p-4 flex-grow space-y-2 text-xs">
+                          {order.items
+                            .filter(it => !isDrinkItem(it.menuItemId))
+                            .map((it, idx) => (
+                              <div key={idx} className="flex justify-between font-semibold text-gray-700">
+                                <span>{it.quantity} x {it.name}</span>
+                              </div>
+                            ))}
+                        </div>
+
+                        {/* Footer operations */}
+                        <div className="bg-gray-50 p-3 border-t border-gray-150 flex space-x-1.5">
+                          {order.status === 'Pending' && (
+                            <button
+                              onClick={() => handleUpdateOrderStatus(order.id, 'In Kitchen')}
+                              className="w-full text-center py-1.5 bg-[#E67E22] hover:bg-[#D35400] text-white font-bold rounded-lg text-[10px] cursor-pointer"
+                            >
+                              Send to Kitchen
+                            </button>
+                          )}
+                          {order.status === 'In Kitchen' && (
+                            <button
+                              onClick={() => handleUpdateOrderStatus(order.id, 'Ready')}
+                              className="w-full text-center py-1.5 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg text-[10px] cursor-pointer"
+                            >
+                              Mark Ready
+                            </button>
+                          )}
+                          {order.status === 'Ready' && (
+                            <button
+                              onClick={() => handleUpdateOrderStatus(order.id, 'Served')}
+                              className="w-full text-center py-1.5 bg-[#1B4F72] hover:bg-[#153E5B] text-white font-bold rounded-lg text-[10px] cursor-pointer"
+                            >
+                              Mark Served
+                            </button>
+                          )}
+                          {order.status === 'Served' && (
+                            <button
+                              onClick={() => handleUpdateOrderStatus(order.id, 'Paid')}
+                              className="w-full text-center py-1.5 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg text-[10px] cursor-pointer"
+                            >
+                              Bill Check Paid
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            )}
           </div>
+
+          {/* Secure Printer Feed Spooler */}
+          {showPrinterSpooler && (
+            <div className="bg-gray-900 text-gray-100 p-5 rounded-2xl border border-gray-800 shadow-xl space-y-4 flex flex-col justify-between h-fit animate-slideIn">
+              <div>
+                <div className="flex items-center justify-between pb-2.5 border-b border-gray-800">
+                  <div className="flex items-center space-x-2">
+                    <Printer className="h-4 w-4 text-green-400 animate-pulse" />
+                    <h3 className="text-xs font-bold text-gray-200 uppercase tracking-wider">Secure Printer Spooler</h3>
+                  </div>
+                  <span className="px-1.5 py-0.5 bg-green-950 text-green-400 border border-green-800 rounded font-mono text-[9px] font-bold">ONLINE</span>
+                </div>
+                <p className="text-[10px] text-gray-400 font-sans mt-2 leading-relaxed">
+                  Monitors secure serial messages sent directly to physical POS & kitchen line thermal ticket printers.
+                </p>
+
+                {/* Print Jobs List */}
+                <div className="space-y-4 mt-4 max-h-[460px] overflow-y-auto pr-1">
+                  {printerJobs.length === 0 ? (
+                    <div className="py-12 text-center text-xs text-gray-500 font-mono italic">
+                      [Spooler Idle - No active print signals dispatched]
+                    </div>
+                  ) : (
+                    printerJobs.map(job => (
+                      <div key={job.id} className="bg-gray-950 border border-gray-800 p-3 rounded-xl space-y-2">
+                        <div className="flex items-center justify-between text-[10px]">
+                          <span className="text-green-400 font-bold">{job.title}</span>
+                          <span className="text-gray-500 text-[9px]">{job.timestamp}</span>
+                        </div>
+                        <pre className="text-[9px] leading-tight text-yellow-100 whitespace-pre overflow-x-auto bg-gray-900/60 p-2.5 rounded-lg border border-gray-850 font-mono">
+                          {job.content}
+                        </pre>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+              {printerJobs.length > 0 && (
+                <button
+                  onClick={() => setPrinterJobs([])}
+                  className="w-full mt-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 font-semibold rounded-lg text-[10px] cursor-pointer text-center font-sans"
+                >
+                  Clear Printed Queue
+                </button>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -1056,6 +1220,34 @@ export default function RestaurantPOS() {
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* Floating Printer Toast Notification */}
+      {printToast && (
+        <div className="fixed bottom-6 right-6 z-50 max-w-sm bg-gray-900 text-white p-4 rounded-2xl shadow-2xl border border-gray-850 flex items-start space-x-3 animate-slideIn">
+          <div className="p-2 bg-green-600 rounded-lg text-white">
+            <Printer className="h-5 w-5 animate-pulse" />
+          </div>
+          <div className="flex-grow">
+            <span className="text-[10px] uppercase font-bold text-green-400 tracking-wider block">🖨️ Thermal Printer Dispatched</span>
+            <span className="text-xs font-semibold text-gray-200">{printToast} sent to hardware spooler.</span>
+            <button 
+              onClick={() => {
+                setActiveTab('kitchen');
+                setShowPrinterSpooler(true);
+              }}
+              className="text-[10px] text-blue-400 hover:underline block mt-1 font-bold cursor-pointer"
+            >
+              View Print Output Feed →
+            </button>
+          </div>
+          <button 
+            onClick={() => setPrintToast(null)}
+            className="text-gray-400 hover:text-white font-bold text-xs cursor-pointer"
+          >
+            ✕
+          </button>
         </div>
       )}
 

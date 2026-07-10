@@ -225,10 +225,10 @@ export default function App() {
           </div>
 
           {/* Form / Direct access */}
-          <div className="md:w-7/12 p-8 flex flex-col justify-between">
+          <div className="md:w-7/12 p-8 flex flex-col justify-center">
             <div>
               <h2 className="text-2xl font-bold font-editorial text-gray-800 dark:text-white mb-1">Staff Secure Terminal</h2>
-              <p className="text-xs text-gray-400 dark:text-gray-300">Enter secure operator credentials or choose simulated user badges below.</p>
+              <p className="text-xs text-gray-400 dark:text-gray-300">Enter secure operator credentials to authorize your console session.</p>
 
               <form onSubmit={handleLoginSubmit} className="space-y-4 mt-6">
                 <div>
@@ -266,23 +266,6 @@ export default function App() {
                   Authorize Connection
                 </button>
               </form>
-            </div>
-
-            {/* Sandbox Quick Bypass badges */}
-            <div className="mt-8 pt-6 border-t border-gray-150 dark:border-gray-700">
-              <h3 className="text-[10px] font-bold text-gray-400 dark:text-gray-300 uppercase tracking-wider mb-3">Simulation Quick Badges</h3>
-              <div className="flex flex-wrap gap-2">
-                {db.users.slice(0, 5).map(usr => (
-                  <button
-                    key={usr.id}
-                    onClick={() => handleQuickLogin(usr.username)}
-                    className="px-2.5 py-1 bg-gray-100 dark:bg-gray-700 hover:bg-[#E67E22]/10 border border-gray-200 dark:border-gray-600 rounded-lg text-[10px] font-bold text-gray-600 dark:text-gray-200 cursor-pointer flex items-center space-x-1"
-                  >
-                    <Shield className="h-3 w-3 text-[#E67E22]" />
-                    <span>{usr.name} ({usr.role})</span>
-                  </button>
-                ))}
-              </div>
             </div>
 
           </div>
@@ -418,23 +401,6 @@ export default function App() {
               );
             })}
           </nav>
-
-          {/* Dynamic Role Swapper Sandbox Box */}
-          <div className="mt-8 pt-6 border-t border-[#153E5B] dark:border-gray-800 px-2 space-y-2.5">
-            <div className="flex items-center space-x-1">
-              <Shield className="h-3.5 w-3.5 text-[#E67E22]" />
-              <span className="text-[10px] font-bold text-white/40 uppercase tracking-wider">Test Role Switching</span>
-            </div>
-            <select
-              className="w-full px-2.5 py-1.5 bg-[#153E5B] dark:bg-gray-800 border border-[#2C3E50] dark:border-gray-700 rounded-lg text-[10px] font-bold text-white"
-              value={activeUser.username}
-              onChange={(e) => handleQuickLogin(e.target.value)}
-            >
-              {db.users.map(u => (
-                <option key={u.id} value={u.username}>{u.name} ({u.role})</option>
-              ))}
-            </select>
-          </div>
         </aside>
 
         {/* MOBILE SIDEBAR MODAL OVERLAY */}
