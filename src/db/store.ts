@@ -329,6 +329,47 @@ class HotelStore {
     this.saveToStorage();
   }
 
+  public getCurrencySymbol(): string {
+    const curr = this.db.settings?.profile?.currency || 'USD';
+    const symbols: { [key: string]: string } = {
+      'USD': '$',
+      'EUR': '€',
+      'GBP': '£',
+      'JPY': '¥',
+      'AUD': 'A$',
+      'CAD': 'C$',
+      'CHF': 'CHF',
+      'INR': '₹',
+      'CNY': '¥',
+      'ZAR': 'R',
+      'RWF': 'FRw',
+      'KES': 'KSh',
+      'UGX': 'USh',
+      'TZS': 'TSh',
+      'NGN': '₦',
+      'GHS': 'GH₵',
+      'ETB': 'Br',
+      'AED': 'AED'
+    };
+    return symbols[curr] || curr;
+  }
+
+  public formatMoney(amount: number): string {
+    const symbol = this.getCurrencySymbol();
+    const curr = this.db.settings?.profile?.currency || 'USD';
+    const showDecimals = !['RWF', 'UGX', 'TZS', 'JPY', 'ETB'].includes(curr);
+    const formatted = showDecimals ? amount.toFixed(2) : Math.round(amount).toString();
+    
+    const parts = formatted.split('.');
+    parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    const withCommas = parts.join('.');
+
+    if (['RWF', 'KES', 'UGX', 'TZS', 'AED', 'ETB'].includes(curr)) {
+      return `${withCommas} ${symbol}`;
+    }
+    return `${symbol}${withCommas}`;
+  }
+
   // INITIAL SETUP WIZARD WRITE
   public initializeSystem(settings: HotelOSSettings, superAdminUser: User): void {
     this.db.settings = { ...settings, autoBackup: true };

@@ -255,8 +255,21 @@ export default function SetupWizard({ onSetupComplete }: SetupWizardProps) {
                       <option value="USD">USD ($)</option>
                       <option value="EUR">EUR (€)</option>
                       <option value="GBP">GBP (£)</option>
+                      <option value="RWF">RWF (FRw)</option>
+                      <option value="KES">KES (KSh)</option>
+                      <option value="UGX">UGX (USh)</option>
+                      <option value="TZS">TZS (TSh)</option>
+                      <option value="ZAR">ZAR (R)</option>
+                      <option value="NGN">NGN (₦)</option>
+                      <option value="GHS">GHS (GH₵)</option>
+                      <option value="ETB">ETB (Br)</option>
+                      <option value="CAD">CAD (C$)</option>
+                      <option value="CHF">CHF (CHF)</option>
+                      <option value="INR">INR (₹)</option>
+                      <option value="CNY">CNY (¥)</option>
                       <option value="JPY">JPY (¥)</option>
                       <option value="AUD">AUD (A$)</option>
+                      <option value="AED">AED (AED)</option>
                     </select>
                   </div>
                   <div>

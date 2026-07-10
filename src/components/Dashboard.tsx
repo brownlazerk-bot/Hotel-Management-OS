@@ -211,9 +211,9 @@ export default function Dashboard() {
           </div>
           <div>
             <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block">Today's Revenue</span>
-            <span className="text-2xl font-bold font-mono text-[#1B4F72] dark:text-blue-300">${stats.todayRev.toLocaleString()}</span>
+            <span className="text-2xl font-bold font-mono text-[#1B4F72] dark:text-blue-300">{store.formatMoney(stats.todayRev)}</span>
             <span className="text-[10px] text-gray-400 block mt-0.5">
-              Net Profit: <span className={stats.todayProfit >= 0 ? 'text-green-600 font-semibold' : 'text-red-500 font-semibold'}>${stats.todayProfit.toLocaleString()}</span>
+              Net Profit: <span className={stats.todayProfit >= 0 ? 'text-green-600 font-semibold' : 'text-red-500 font-semibold'}>{store.formatMoney(stats.todayProfit)}</span>
             </span>
           </div>
         </div>
@@ -239,7 +239,7 @@ export default function Dashboard() {
           </div>
           <div>
             <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block">Restaurant Sales</span>
-            <span className="text-2xl font-bold font-mono text-[#1B4F72] dark:text-blue-300">${stats.restaurantSalesToday.toLocaleString()}</span>
+            <span className="text-2xl font-bold font-mono text-[#1B4F72] dark:text-blue-300">{store.formatMoney(stats.restaurantSalesToday)}</span>
             <span className="text-[10px] text-gray-400 block mt-0.5">Today's dining closed receipts</span>
           </div>
         </div>

@@ -330,9 +330,9 @@ export default function FrontOffice() {
                           </td>
                           <td className="py-4 px-4 text-gray-600">
                             <div>
-                              <span className="font-bold block">${res.totalAmount} Total</span>
+                              <span className="font-bold block">{store.formatMoney(res.totalAmount)} Total</span>
                               <span className={`text-[10px] font-semibold ${balance === 0 ? 'text-green-600' : 'text-[#E67E22]'}`}>
-                                {balance === 0 ? 'Fully Paid' : `$${balance} Pending`}
+                                {balance === 0 ? 'Fully Paid' : `${store.formatMoney(balance)} Pending`}
                               </span>
                             </div>
                           </td>
