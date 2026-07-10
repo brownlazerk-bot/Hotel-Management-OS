@@ -54,10 +54,14 @@ export type ReservationStatus =
   | 'Cancelled';
 
 export type OrderStatus =
-  | 'Pending'
-  | 'In Kitchen'
+  | 'New'
+  | 'Pending Kitchen'
+  | 'Preparing'
   | 'Ready'
   | 'Served'
+  | 'Completed'
+  | 'Pending'
+  | 'In Kitchen'
   | 'Paid'
   | 'Cancelled';
 
@@ -230,6 +234,16 @@ export interface OrderItem {
 
 export interface RestaurantOrder {
   id: string;
+  orderNumber?: string;
+  kotNumber?: string;
+  orderType?: 'Dine In' | 'Take Away' | 'Room Service';
+  roomNumber?: string;
+  customerName?: string;
+  guestCount?: number;
+  specialInstructions?: string;
+  kotPrinted?: boolean;
+  receiptPrinted?: boolean;
+  printCount?: number;
   tableId?: string;
   waiterId: string;
   items: OrderItem[];

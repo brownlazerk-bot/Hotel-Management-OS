@@ -1385,7 +1385,8 @@ class HotelStore {
       { id: 'm_4', name: 'Prime Dry-Aged Filet Mignon', category: 'Main', price: 68, isAvailable: true, description: 'Chanterelle mushroom reduction, potato mille-feuille.', productId: 'prod_6' },
       { id: 'm_5', name: 'Valrhona Chocolate Dome soufflé', category: 'Dessert', price: 18, isAvailable: true, description: 'Salted caramel, house bourbon vanilla bean gelato.', productId: 'prod_7' },
       { id: 'm_6', name: 'Horizon Sunset Mojito', category: 'Beverage', price: 16, isAvailable: true, description: 'Fresh mint, dark rum, blood orange infusion.', productId: 'prod_8' },
-      { id: 'm_7', name: 'Chateau Margaux 2018 (Glass)', category: 'Alcoholic', price: 45, isAvailable: true, description: 'Silky, complex notes of dark berries and smoke.', productId: 'prod_9' }
+      { id: 'm_7', name: 'Chateau Margaux 2018 (Glass)', category: 'Alcoholic', price: 45, isAvailable: true, description: 'Silky, complex notes of dark berries and smoke.', productId: 'prod_9' },
+      { id: 'm_8', name: 'Chicken Brochette', category: 'Main', price: 22, isAvailable: true, description: 'Flame-grilled skewered tender chicken, onions, and tomatoes served with dip.', productId: 'prod_chicken' }
     ];
 
     // 11. Restaurant Orders
@@ -1440,7 +1441,11 @@ class HotelStore {
       { id: 'prod_6', name: 'Prime Dry-Aged Beef Cuts (kg)', category: 'Food', unit: 'kg', currentStock: 30, minStockAlert: 6, unitPrice: 70, warehouseLocation: 'Walk-In Freezer', supplierId: 'sup_1' },
       { id: 'prod_7', name: 'Premium Valrhona Chocolate (kg)', category: 'Food', unit: 'kg', currentStock: 10, minStockAlert: 2, unitPrice: 40, warehouseLocation: 'Pantry Shelf C', supplierId: 'sup_1' },
       { id: 'prod_8', name: 'Horizon Sunset Mojito Ingredients (Box)', category: 'Beverage', unit: 'pcs', currentStock: 40, minStockAlert: 10, unitPrice: 15, warehouseLocation: 'Bar Cabinets', supplierId: 'sup_1' },
-      { id: 'prod_9', name: 'Chateau Margaux 2018 Bottles', category: 'Beverage', unit: 'pcs', currentStock: 15, minStockAlert: 3, unitPrice: 150, warehouseLocation: 'Wine Cellar Cabinet 2', supplierId: 'sup_1' }
+      { id: 'prod_9', name: 'Chateau Margaux 2018 Bottles', category: 'Beverage', unit: 'pcs', currentStock: 15, minStockAlert: 3, unitPrice: 150, warehouseLocation: 'Wine Cellar Cabinet 2', supplierId: 'sup_1' },
+      { id: 'prod_chicken', name: 'Chicken Portion (packs)', category: 'Food', unit: 'packs', currentStock: 80, minStockAlert: 10, unitPrice: 6, warehouseLocation: 'Walk-In Freezer', supplierId: 'sup_1' },
+      { id: 'prod_onion', name: 'Fresh Onions (pcs)', category: 'Food', unit: 'pcs', currentStock: 120, minStockAlert: 15, unitPrice: 0.5, warehouseLocation: 'Pantry Shelf A', supplierId: 'sup_1' },
+      { id: 'prod_tomato', name: 'Fresh Tomatoes (pcs)', category: 'Food', unit: 'pcs', currentStock: 150, minStockAlert: 20, unitPrice: 0.4, warehouseLocation: 'Pantry Shelf A', supplierId: 'sup_1' },
+      { id: 'prod_oil', name: 'Cooking Oil (liters)', category: 'Food', unit: 'liters', currentStock: 45, minStockAlert: 5, unitPrice: 3.5, warehouseLocation: 'Pantry Shelf B', supplierId: 'sup_1' }
     ];
 
     // 14. Accounts seed initial balances
