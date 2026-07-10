@@ -497,5 +497,13 @@ export interface HotelOSDatabase {
   notifications: SystemNotification[];
   auditLogs: AuditLog[];
   shiftReports: DailyShiftReport[];
+  consoleMappings?: ConsoleMapping[];
   isInitialized: boolean;
 }
+
+export interface ConsoleMapping {
+  consoleId: string;
+  consoleName: string;
+  departmentId: string;
+}
+

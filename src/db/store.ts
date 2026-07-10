@@ -38,7 +38,8 @@ import {
   PaymentMethod,
   RoleName,
   Permission,
-  DailyShiftReport
+  DailyShiftReport,
+  ConsoleMapping
 } from '../types';
 
 // ============================================================================
@@ -150,6 +151,18 @@ class HotelStore {
     }
   }
 
+  public getDefaultConsoleMappings(): ConsoleMapping[] {
+    return [
+      { consoleId: 'rooms', consoleName: 'Rooms & Front Desk', departmentId: 'dept_reception' },
+      { consoleId: 'pos', consoleName: 'Food & Dining POS', departmentId: 'dept_restaurant' },
+      { consoleId: 'inventory', consoleName: 'Inventory & Procurement', departmentId: 'dept_restaurant' },
+      { consoleId: 'reports', consoleName: 'Shift Reconciliation', departmentId: 'dept_finance' },
+      { consoleId: 'finance', consoleName: 'HR & Ledger', departmentId: 'dept_finance' },
+      { consoleId: 'housekeeping', consoleName: 'Housekeeping & Maintenance', departmentId: 'dept_housekeeping' },
+      { consoleId: 'settings', consoleName: 'Settings', departmentId: 'dept_reception' }
+    ];
+  }
+
   private loadFromStorage(): HotelOSDatabase {
     try {
       const stored = localStorage.getItem('hotel_os_database');
@@ -158,13 +171,17 @@ class HotelStore {
         return {
           ...INITIAL_STATE,
           ...parsed,
-          shiftReports: parsed.shiftReports || []
+          shiftReports: parsed.shiftReports || [],
+          consoleMappings: parsed.consoleMappings || this.getDefaultConsoleMappings()
         };
       }
     } catch (e) {
       console.error('Failed to load database from localStorage, initializing fresh', e);
     }
-    return { ...INITIAL_STATE };
+    return { 
+      ...INITIAL_STATE,
+      consoleMappings: this.getDefaultConsoleMappings()
+    };
   }
 
   private saveToStorage(): void {
@@ -389,6 +406,20 @@ class HotelStore {
   }
 
   // STAFF & DEPARTMENTS
+  public saveConsoleMapping(mapping: ConsoleMapping): void {
+    if (!this.db.consoleMappings) {
+      this.db.consoleMappings = this.getDefaultConsoleMappings();
+    }
+    const index = this.db.consoleMappings.findIndex(m => m.consoleId === mapping.consoleId);
+    if (index !== -1) {
+      this.db.consoleMappings[index] = mapping;
+    } else {
+      this.db.consoleMappings.push(mapping);
+    }
+    this.addAuditLog('Update Console Mapping', 'Settings', `Mapped console ${mapping.consoleName} to department ${mapping.departmentId}`);
+    this.saveToStorage();
+  }
+
   public saveDepartment(dept: Department): void {
     const index = this.db.departments.findIndex(d => d.id === dept.id);
     if (index !== -1) {
