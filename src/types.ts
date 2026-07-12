@@ -114,6 +114,7 @@ export interface User {
   email: string;
   isActive: boolean;
   createdAt: string;
+  employeeId?: string; // Optional link to employee profile in HR directory
 }
 
 export interface Department {

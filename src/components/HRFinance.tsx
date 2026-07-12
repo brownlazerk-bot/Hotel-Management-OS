@@ -69,6 +69,7 @@ export default function HRFinance() {
   const [usrEmail, setUsrEmail] = useState('');
   const [usrRole, setUsrRole] = useState<RoleName>('Receptionist');
   const [usrActive, setUsrActive] = useState(true);
+  const [usrEmpId, setUsrEmpId] = useState('');
   const [isEditingUser, setIsEditingUser] = useState(false);
 
   // Selected Role for Permissions Editor
@@ -77,6 +78,38 @@ export default function HRFinance() {
   // ============================================================================
   // OPERATIONS HANDLERS
   // ============================================================================
+  const handleCreateAccountFromEmployee = (emp: Employee) => {
+    setActiveTab('users');
+    setUsrEmpId(emp.id);
+    setUsrName(`${emp.firstName} ${emp.lastName}`);
+    setUsrEmail(emp.email);
+    
+    // Suggest a clean username
+    const suggestedUsername = (emp.firstName[0] + emp.lastName).replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+    setUsrUsername(suggestedUsername);
+    setUsrPassword('pass_' + Math.random().toString(36).substring(2, 6)); // Auto suggested password
+    
+    // Auto map position
+    const pos = emp.position.toLowerCase();
+    let autoRole: RoleName = 'Receptionist';
+    if (pos.includes('admin') || pos.includes('system')) autoRole = 'Super Admin';
+    else if (pos.includes('ceo') || pos.includes('executive')) autoRole = 'CEO';
+    else if (pos.includes('manager') || pos.includes('director')) autoRole = 'Manager';
+    else if (pos.includes('reception') || pos.includes('front desk') || pos.includes('desk')) autoRole = 'Receptionist';
+    else if (pos.includes('accountant') || pos.includes('finance') || pos.includes('billing')) autoRole = 'Accountant';
+    else if (pos.includes('cashier') || pos.includes('pos')) autoRole = 'Cashier';
+    else if (pos.includes('waiter') || pos.includes('server') || pos.includes('steward')) autoRole = 'Waiter';
+    else if (pos.includes('chef') || pos.includes('cook') || pos.includes('kitchen')) autoRole = 'Chef';
+    else if (pos.includes('housekeep') || pos.includes('cleaner') || pos.includes('laundry')) autoRole = 'Housekeeper';
+    else if (pos.includes('store') || pos.includes('keeper') || pos.includes('inventory')) autoRole = 'Storekeeper';
+    else if (pos.includes('maintenance') || pos.includes('engineer') || pos.includes('plumber') || pos.includes('electrician')) autoRole = 'Maintenance Staff';
+    else if (pos.includes('security') || pos.includes('guard')) autoRole = 'Security';
+    
+    setUsrRole(autoRole);
+    setUsrActive(true);
+    setIsEditingUser(false);
+  };
+
   const handleSaveUser = (e: React.FormEvent) => {
     e.preventDefault();
     if (!usrUsername || !usrName || !usrEmail) return;
@@ -96,6 +129,7 @@ export default function HRFinance() {
       name: usrName.trim(),
       email: usrEmail.trim(),
       isActive: usrActive,
+      employeeId: usrEmpId || undefined,
       createdAt: usrId ? (db.users.find(u => u.id === usrId)?.createdAt || new Date().toISOString()) : new Date().toISOString()
     };
 
@@ -109,6 +143,7 @@ export default function HRFinance() {
     setUsrEmail('');
     setUsrRole('Receptionist');
     setUsrActive(true);
+    setUsrEmpId('');
     setIsEditingUser(false);
   };
 
@@ -120,6 +155,7 @@ export default function HRFinance() {
     setUsrEmail(user.email);
     setUsrRole(user.role);
     setUsrActive(user.isActive);
+    setUsrEmpId(user.employeeId || '');
     setIsEditingUser(true);
   };
 
@@ -131,6 +167,7 @@ export default function HRFinance() {
     setUsrEmail('');
     setUsrRole('Receptionist');
     setUsrActive(true);
+    setUsrEmpId('');
     setIsEditingUser(false);
   };
 
@@ -516,22 +553,43 @@ export default function HRFinance() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[500px] overflow-y-auto pr-1">
                   {db.employees.map(emp => {
                     const deptObj = db.departments.find(d => d.id === emp.departmentId);
+                    const linkedUser = db.users.find(u => u.employeeId === emp.id || u.email.toLowerCase() === emp.email.toLowerCase());
                     return (
-                      <div key={emp.id} className="p-4 bg-gray-50/50 rounded-2xl border border-gray-150 space-y-2 text-xs relative">
-                        <div className="flex items-center space-x-2">
-                          <div className="w-8 h-8 rounded-full bg-[#1B4F72] text-white flex items-center justify-center font-bold font-sans">
-                            {emp.firstName[0]}{emp.lastName[0]}
+                      <div key={emp.id} className="p-4 bg-gray-50/50 rounded-2xl border border-gray-150 space-y-2 text-xs relative flex flex-col justify-between">
+                        <div>
+                          <div className="flex items-center space-x-2">
+                            <div className="w-8 h-8 rounded-full bg-[#1B4F72] text-white flex items-center justify-center font-bold font-sans">
+                              {emp.firstName[0]}{emp.lastName[0]}
+                            </div>
+                            <div>
+                              <strong className="text-gray-800 text-sm block font-bold">{emp.firstName} {emp.lastName}</strong>
+                              <span className="text-[10px] text-gray-400 font-semibold">{emp.position} • {deptObj?.name}</span>
+                            </div>
                           </div>
-                          <div>
-                            <strong className="text-gray-800 text-sm block font-bold">{emp.firstName} {emp.lastName}</strong>
-                            <span className="text-[10px] text-gray-400 font-semibold">{emp.position} • {deptObj?.name}</span>
+                          <div className="pt-2 border-t border-gray-200/50 space-y-1 text-gray-500 font-semibold mt-2">
+                            <span className="block">Email: <strong className="text-gray-700">{emp.email}</strong></span>
+                            <span className="block">Contact: <strong className="text-gray-700">{emp.phone}</strong></span>
+                            <span className="block">Type: <strong className="text-gray-700">{emp.contractType}</strong></span>
+                            <span className="block">Monthly Base: <strong className="text-gray-700">${emp.salary.toLocaleString()}</strong></span>
                           </div>
                         </div>
-                        <div className="pt-2 border-t border-gray-200/50 space-y-1 text-gray-500 font-semibold">
-                          <span className="block">Email: <strong className="text-gray-700">{emp.email}</strong></span>
-                          <span className="block">Contact: <strong className="text-gray-700">{emp.phone}</strong></span>
-                          <span className="block">Type: <strong className="text-gray-700">{emp.contractType}</strong></span>
-                          <span className="block">Monthly Base: <strong className="text-gray-700">${emp.salary.toLocaleString()}</strong></span>
+
+                        <div className="pt-2 border-t border-gray-200/50 flex flex-wrap items-center justify-between gap-1.5 mt-1.5">
+                          {linkedUser ? (
+                            <span className="inline-flex items-center space-x-1 bg-emerald-50 text-emerald-700 border border-emerald-100 px-2 py-0.5 rounded text-[10px] font-bold">
+                              <UserCheck className="h-3 w-3" />
+                              <span>Console: @{linkedUser.username}</span>
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleCreateAccountFromEmployee(emp)}
+                              className="px-2 py-1 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-700 rounded text-[10px] font-bold transition duration-150 inline-flex items-center space-x-1 cursor-pointer"
+                            >
+                              <Lock className="h-3 w-3" />
+                              <span>+ Create Account</span>
+                            </button>
+                          )}
                         </div>
 
                         <div className="absolute top-2 right-2 text-yellow-500 font-bold" title="Performance Score">
@@ -1052,6 +1110,75 @@ export default function HRFinance() {
               </h3>
               
               <form onSubmit={handleSaveUser} className="space-y-4">
+                {/* Select Employee Link */}
+                <div className="bg-amber-50/30 dark:bg-amber-950/5 p-3 rounded-xl border border-amber-200/50 dark:border-amber-900/20 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-[10px] font-bold text-amber-800 dark:text-amber-400 uppercase tracking-wider">
+                      Link to HR Employee Profile
+                    </label>
+                    <span className="text-[9px] font-bold text-amber-700/80 bg-amber-100/50 px-1.5 py-0.2 rounded">
+                      Staff Directory Option
+                    </span>
+                  </div>
+                  <select
+                    className="w-full px-3 py-2 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700/80 border border-amber-200 dark:border-gray-700 rounded-lg text-xs font-semibold text-gray-850 dark:text-gray-200 cursor-pointer focus:outline-none transition"
+                    value={usrEmpId}
+                    onChange={(e) => {
+                      const empId = e.target.value;
+                      setUsrEmpId(empId);
+                      if (empId) {
+                        const emp = db.employees.find(x => x.id === empId);
+                        if (emp) {
+                          setUsrName(`${emp.firstName} ${emp.lastName}`);
+                          setUsrEmail(emp.email);
+                          
+                          // Suggest a clean username
+                          const suggestedUsername = (emp.firstName[0] + emp.lastName).replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+                          if (!isEditingUser) {
+                            setUsrUsername(suggestedUsername);
+                            setUsrPassword('pass_' + Math.random().toString(36).substring(2, 6));
+                          }
+
+                          // Auto select close system role
+                          const pos = emp.position.toLowerCase();
+                          let autoRole: RoleName = 'Receptionist';
+                          if (pos.includes('admin') || pos.includes('system')) autoRole = 'Super Admin';
+                          else if (pos.includes('ceo') || pos.includes('executive')) autoRole = 'CEO';
+                          else if (pos.includes('manager') || pos.includes('director')) autoRole = 'Manager';
+                          else if (pos.includes('reception') || pos.includes('front desk') || pos.includes('desk')) autoRole = 'Receptionist';
+                          else if (pos.includes('accountant') || pos.includes('finance') || pos.includes('billing')) autoRole = 'Accountant';
+                          else if (pos.includes('cashier') || pos.includes('pos')) autoRole = 'Cashier';
+                          else if (pos.includes('waiter') || pos.includes('server') || pos.includes('steward')) autoRole = 'Waiter';
+                          else if (pos.includes('chef') || pos.includes('cook') || pos.includes('kitchen')) autoRole = 'Chef';
+                          else if (pos.includes('housekeep') || pos.includes('cleaner') || pos.includes('laundry')) autoRole = 'Housekeeper';
+                          else if (pos.includes('store') || pos.includes('keeper') || pos.includes('inventory')) autoRole = 'Storekeeper';
+                          else if (pos.includes('maintenance') || pos.includes('engineer') || pos.includes('plumber') || pos.includes('electrician')) autoRole = 'Maintenance Staff';
+                          else if (pos.includes('security') || pos.includes('guard')) autoRole = 'Security';
+                          
+                          setUsrRole(autoRole);
+                        }
+                      } else {
+                        if (!isEditingUser) {
+                          setUsrName('');
+                          setUsrEmail('');
+                          setUsrUsername('');
+                          setUsrPassword('');
+                        }
+                      }
+                    }}
+                  >
+                    <option value="">-- Manual Operator Account (No HR Link) --</option>
+                    {db.employees.map(emp => {
+                      const alreadyLinked = db.users.some(u => u.employeeId === emp.id && u.id !== usrId);
+                      return (
+                        <option key={emp.id} value={emp.id}>
+                          👤 {emp.firstName} {emp.lastName} ({emp.position}) {alreadyLinked ? '⚠️ [Already Linked]' : ''}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+
                 <div>
                   <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Full Operator Name</label>
                   <input
