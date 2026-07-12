@@ -834,6 +834,11 @@ class HotelStore {
     this.saveToStorage();
   }
 
+  public deleteMenuItem(id: string): void {
+    this.db.menuItems = this.db.menuItems.filter(m => m.id !== id);
+    this.saveToStorage();
+  }
+
   public saveRestaurantTable(table: RestaurantTable): void {
     const index = this.db.restaurantTables.findIndex(t => t.id === table.id);
     if (index !== -1) {

@@ -62,8 +62,19 @@ export default function RestaurantPOS() {
   const db = store.getDb();
   
   // Tabs & Simulation Roles
-  const [activeTab, setActiveTab] = useState<'tables' | 'terminal' | 'kitchen' | 'reports' | 'shift'>('tables');
+  const [activeTab, setActiveTab] = useState<'tables' | 'terminal' | 'kitchen' | 'reports' | 'shift' | 'menu'>('tables');
   const [simulatedRole, setSimulatedRole] = useState<'Cashier' | 'Kitchen' | 'Restaurant Manager' | 'Admin'>('Admin');
+  
+  // Menu Item Creator/Editor States
+  const [editingMenuItem, setEditingMenuItem] = useState<MenuItem | null>(null);
+  const [menuItemName, setMenuItemName] = useState('');
+  const [menuItemCategory, setMenuItemCategory] = useState('Main');
+  const [menuItemPrice, setMenuItemPrice] = useState<string>('');
+  const [menuItemDescription, setMenuItemDescription] = useState('');
+  const [menuItemAvailable, setMenuItemAvailable] = useState(true);
+  const [menuItemProductId, setMenuItemProductId] = useState('');
+  const [menuSuccessMessage, setMenuSuccessMessage] = useState('');
+  const [menuErrorMessage, setMenuErrorMessage] = useState('');
   
   // Offline & Sync States
   const [isOffline, setIsOffline] = useState<boolean>(false);
@@ -729,6 +740,66 @@ export default function RestaurantPOS() {
     setPrintToast(`Deploied table ${tbl.tableNumber}`);
   };
 
+  // Menu item catalog management helpers
+  const handleSaveMenuItem = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!menuItemName.trim()) {
+      setMenuErrorMessage('Menu item name is required.');
+      return;
+    }
+    const priceNum = parseFloat(menuItemPrice);
+    if (isNaN(priceNum) || priceNum < 0) {
+      setMenuErrorMessage('Price must be a valid non-negative number.');
+      return;
+    }
+
+    const item: MenuItem = {
+      id: editingMenuItem ? editingMenuItem.id : `m_${Date.now()}`,
+      name: menuItemName.trim(),
+      category: menuItemCategory,
+      price: priceNum,
+      isAvailable: menuItemAvailable,
+      description: menuItemDescription.trim() || undefined,
+      productId: menuItemProductId || undefined,
+    };
+
+    store.saveMenuItem(item);
+    
+    // Clear form
+    setEditingMenuItem(null);
+    setMenuItemName('');
+    setMenuItemCategory('Main');
+    setMenuItemPrice('');
+    setMenuItemDescription('');
+    setMenuItemAvailable(true);
+    setMenuItemProductId('');
+    setMenuErrorMessage('');
+    setMenuSuccessMessage(editingMenuItem ? 'Menu item updated successfully!' : 'Menu item created successfully!');
+    setPrintToast(editingMenuItem ? `Updated menu item: ${item.name}` : `Created menu item: ${item.name}`);
+    setTimeout(() => setMenuSuccessMessage(''), 4000);
+  };
+
+  const handleEditMenuItem = (item: MenuItem) => {
+    setEditingMenuItem(item);
+    setMenuItemName(item.name);
+    setMenuItemCategory(item.category);
+    setMenuItemPrice(String(item.price));
+    setMenuItemDescription(item.description || '');
+    setMenuItemAvailable(item.isAvailable);
+    setMenuItemProductId(item.productId || '');
+    setMenuErrorMessage('');
+  };
+
+  const handleDeleteMenuItem = (id: string) => {
+    const item = db.menuItems.find(m => m.id === id);
+    if (item && confirm(`Are you sure you want to delete "${item.name}" from the menu catalog?`)) {
+      store.deleteMenuItem(id);
+      setMenuSuccessMessage('Menu item deleted successfully!');
+      setPrintToast(`Deleted menu item: ${item.name}`);
+      setTimeout(() => setMenuSuccessMessage(''), 4000);
+    }
+  };
+
   // Shift Management submit
   const shiftTotals = useMemo(() => {
     const shiftSales = db.sales;
@@ -1066,6 +1137,18 @@ export default function RestaurantPOS() {
           >
             <DollarSign className="h-3.5 w-3.5" />
             <span>Shift & Cashier reconciliation</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('menu')}
+            className={`px-4 py-2 text-xs font-bold rounded-xl transition duration-150 border cursor-pointer flex items-center space-x-1.5 ${
+              activeTab === 'menu'
+                ? 'bg-[#1B4F72] text-white border-[#1B4F72] shadow-sm'
+                : 'bg-white text-gray-600 border-gray-150 hover:bg-gray-50'
+            }`}
+          >
+            <ClipboardList className="h-3.5 w-3.5" />
+            <span>Menu Catalog Manager</span>
           </button>
         </div>
 
@@ -1963,6 +2046,232 @@ export default function RestaurantPOS() {
                     >
                       Settle Cash Register
                     </button>
+                  </form>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 6: MENU CATALOG MANAGER */}
+          {activeTab === 'menu' && (
+            <div className="space-y-6">
+              {menuSuccessMessage && (
+                <div className="p-4 bg-green-50 border border-green-200 text-green-800 rounded-2xl flex items-center space-x-2 text-sm font-semibold shadow-sm">
+                  <CheckCircle className="h-5 w-5 text-green-600 shrink-0" />
+                  <span>{menuSuccessMessage}</span>
+                </div>
+              )}
+
+              {menuErrorMessage && (
+                <div className="p-4 bg-red-50 border border-red-200 text-red-800 rounded-2xl flex items-center space-x-2 text-sm font-semibold shadow-sm">
+                  <AlertCircle className="h-5 w-5 text-red-600 shrink-0" />
+                  <span>{menuErrorMessage}</span>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-fadeIn">
+                
+                {/* Menu Catalog List Table */}
+                <div className="lg:col-span-2 space-y-4">
+                  <div className="bg-white p-6 rounded-2xl border border-gray-150 shadow-sm space-y-4">
+                    <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+                      <div>
+                        <h2 className="text-md font-bold text-gray-800">Restaurant Menu Catalog</h2>
+                        <p className="text-xs text-gray-400">Total {db.menuItems.length} active dishes and beverage products catalogued.</p>
+                      </div>
+                    </div>
+
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs">
+                        <thead>
+                          <tr className="border-b text-[10px] text-slate-400 uppercase tracking-wider font-bold">
+                            <th className="py-2.5">Item Name</th>
+                            <th className="py-2.5">Category</th>
+                            <th className="py-2.5">Price</th>
+                            <th className="py-2.5">Availability</th>
+                            <th className="py-2.5">Linked Stock Item</th>
+                            <th className="py-2.5 text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y">
+                          {db.menuItems.map(item => (
+                            <tr key={item.id} className="hover:bg-slate-50/50">
+                              <td className="py-3 font-semibold text-slate-800">
+                                <div>{item.name}</div>
+                                {item.description && (
+                                  <div className="text-[10px] text-slate-400 font-normal mt-0.5 max-w-xs truncate">{item.description}</div>
+                                )}
+                              </td>
+                              <td className="py-3">
+                                <span className={`px-2 py-0.5 rounded text-[9px] font-bold border ${
+                                  item.category === 'Starter' ? 'bg-indigo-50 text-indigo-700 border-indigo-150' :
+                                  item.category === 'Main' ? 'bg-blue-50 text-blue-700 border-blue-150' :
+                                  item.category === 'Dessert' ? 'bg-pink-50 text-pink-700 border-pink-150' :
+                                  item.category === 'Beverage' ? 'bg-teal-50 text-teal-700 border-teal-150' :
+                                  'bg-amber-50 text-amber-700 border-amber-150'
+                                }`}>
+                                  {item.category}
+                                </span>
+                              </td>
+                              <td className="py-3 font-mono font-bold text-slate-900">${item.price.toFixed(2)}</td>
+                              <td className="py-3">
+                                <span className={`inline-flex items-center gap-1 text-[10px] font-bold ${item.isAvailable ? 'text-green-600' : 'text-slate-400'}`}>
+                                  <span className={`h-1.5 w-1.5 rounded-full ${item.isAvailable ? 'bg-green-600' : 'bg-slate-300'}`} />
+                                  {item.isAvailable ? 'Available' : 'Unavailable'}
+                                </span>
+                              </td>
+                              <td className="py-3 text-slate-500 text-[11px]">
+                                {item.productId ? (
+                                  <span className="bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded font-mono text-[10px]">
+                                    {db.products.find(p => p.id === item.productId)?.name || item.productId}
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-300 italic">None</span>
+                                )}
+                              </td>
+                              <td className="py-3 text-right space-x-2">
+                                <button
+                                  onClick={() => handleEditMenuItem(item)}
+                                  className="text-[11px] font-bold text-[#1B4F72] hover:underline cursor-pointer"
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteMenuItem(item.id)}
+                                  className="text-[11px] font-bold text-red-600 hover:underline cursor-pointer"
+                                >
+                                  Delete
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Create / Edit Menu Item Form */}
+                <div className="bg-white p-5 rounded-2xl border border-gray-150 shadow-sm h-fit space-y-4">
+                  <h3 className="text-sm font-bold text-gray-800 flex items-center border-b border-gray-100 pb-2">
+                    <ClipboardList className="h-4 w-4 mr-1.5 text-blue-600" /> 
+                    {editingMenuItem ? 'Edit Menu Item' : 'Add New Menu Item'}
+                  </h3>
+                  
+                  <form onSubmit={handleSaveMenuItem} className="space-y-4">
+                    <div>
+                      <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Item Name</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. Lobster Thermidor"
+                        className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs font-semibold text-gray-800 focus:outline-none"
+                        value={menuItemName}
+                        onChange={(e) => setMenuItemName(e.target.value)}
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Category</label>
+                        <select
+                          className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs font-semibold text-gray-800 focus:outline-none"
+                          value={menuItemCategory}
+                          onChange={(e) => setMenuItemCategory(e.target.value)}
+                        >
+                          <option value="Starter">Starter</option>
+                          <option value="Main">Main</option>
+                          <option value="Dessert">Dessert</option>
+                          <option value="Beverage">Beverage</option>
+                          <option value="Alcoholic">Alcoholic</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Price ($)</label>
+                        <input
+                          type="number"
+                          required
+                          min="0"
+                          step="0.01"
+                          placeholder="0.00"
+                          className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs font-semibold text-gray-800 focus:outline-none"
+                          value={menuItemPrice}
+                          onChange={(e) => setMenuItemPrice(e.target.value)}
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Description (Optional)</label>
+                      <textarea
+                        rows={2}
+                        placeholder="Brief description of the dish/beverage..."
+                        className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs focus:outline-none text-gray-800"
+                        value={menuItemDescription}
+                        onChange={(e) => setMenuItemDescription(e.target.value)}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Link to Warehouse Inventory Stock Item (Optional)</label>
+                      <select
+                        className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs font-semibold text-gray-800 focus:outline-none"
+                        value={menuItemProductId}
+                        onChange={(e) => setMenuItemProductId(e.target.value)}
+                      >
+                        <option value="">-- No link (Raw or Untracked) --</option>
+                        {db.products.map(prod => (
+                          <option key={prod.id} value={prod.id}>
+                            {prod.name} ({prod.category})
+                          </option>
+                        ))}
+                      </select>
+                      <span className="block text-[9px] text-slate-400 mt-1 italic">
+                        Links sales of this item to trigger automated inventory stock decreases on fulfillment.
+                      </span>
+                    </div>
+
+                    <div className="flex items-center space-x-2 py-1">
+                      <input
+                        type="checkbox"
+                        id="menuItemAvailable"
+                        className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 h-3.5 w-3.5"
+                        checked={menuItemAvailable}
+                        onChange={(e) => setMenuItemAvailable(e.target.checked)}
+                      />
+                      <label htmlFor="menuItemAvailable" className="text-xs font-bold text-slate-700 cursor-pointer select-none">
+                        Mark as Available for Order
+                      </label>
+                    </div>
+
+                    <div className="flex space-x-2 pt-2">
+                      <button
+                        type="submit"
+                        className="flex-1 py-2 bg-[#1B4F72] hover:bg-[#153E5B] text-white rounded-xl font-bold text-xs transition cursor-pointer"
+                      >
+                        {editingMenuItem ? 'Update Item' : 'Add to Catalog'}
+                      </button>
+                      
+                      {editingMenuItem && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingMenuItem(null);
+                            setMenuItemName('');
+                            setMenuItemCategory('Main');
+                            setMenuItemPrice('');
+                            setMenuItemDescription('');
+                            setMenuItemAvailable(true);
+                            setMenuItemProductId('');
+                            setMenuErrorMessage('');
+                          }}
+                          className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-xs transition cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                      )}
+                    </div>
                   </form>
                 </div>
               </div>
