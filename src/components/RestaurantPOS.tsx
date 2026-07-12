@@ -792,12 +792,32 @@ export default function RestaurantPOS() {
 
   // Dynamic menu catalog filters
   const filteredMenuItems = useMemo(() => {
-    return db.menuItems.filter(item => {
+    const list = [...db.menuItems];
+    
+    // Auto-integrate Storekeeper items that are not explicitly in menuItems
+    db.products.forEach(product => {
+      const isLinked = db.menuItems.some(item => item.productId === product.id);
+      if (!isLinked) {
+        if (product.category === 'Food' || product.category === 'Beverage') {
+          list.push({
+            id: `stock_${product.id}`,
+            name: product.name,
+            category: product.category === 'Food' ? 'Main' : 'Beverage',
+            price: product.unitPrice || 10,
+            isAvailable: true,
+            description: `Storekeeper Stock Product: ${product.name}`,
+            productId: product.id
+          });
+        }
+      }
+    });
+
+    return list.filter(item => {
       const cMatch = menuFilterCategory === 'All' || item.category === menuFilterCategory;
       const sMatch = item.name.toLowerCase().includes(menuSearchQuery.toLowerCase());
       return cMatch && sMatch && item.isAvailable;
     });
-  }, [db.menuItems, menuFilterCategory, menuSearchQuery]);
+  }, [db.menuItems, db.products, menuFilterCategory, menuSearchQuery]);
 
   // Dynamic stock catalog filters
   const filteredStockProducts = useMemo(() => {
@@ -1320,9 +1340,11 @@ export default function RestaurantPOS() {
                           </div>
                           <div className="flex items-center justify-between">
                             <strong className="text-xs font-bold text-slate-800">${item.price}</strong>
-                            {INGREDIENTS_RECIPES[item.name.toLowerCase()] && (
+                            {INGREDIENTS_RECIPES[item.name.toLowerCase()] ? (
                               <span className="text-[8px] bg-amber-50 text-amber-700 border px-1 rounded">Recipe</span>
-                            )}
+                            ) : item.id.startsWith('stock_') ? (
+                              <span className="text-[8px] bg-blue-50 text-[#1B4F72] border px-1 rounded">Stock Product</span>
+                            ) : null}
                           </div>
                         </div>
                       );
