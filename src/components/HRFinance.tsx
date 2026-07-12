@@ -202,7 +202,7 @@ export default function HRFinance() {
     let updatedPermissions = [...role.permissions];
     if (updatedPermissions.includes('all')) {
       // If 'all', split it into other permissions to edit individually
-      updatedPermissions = ['view_dashboard', 'manage_guests', 'manage_rooms', 'manage_restaurant', 'manage_inventory', 'manage_accounting', 'manage_housekeeping', 'manage_settings'];
+      updatedPermissions = ['view_dashboard', 'manage_guests', 'manage_rooms', 'manage_restaurant', 'manage_pos', 'manage_inventory', 'manage_accounting', 'manage_housekeeping', 'manage_settings'];
     }
 
     if (updatedPermissions.includes(permissionId)) {
@@ -1516,7 +1516,8 @@ export default function HRFinance() {
                         { id: 'view_dashboard', label: 'Executive Analytics & Shift Reconciliation', description: 'Dashboard view & shift reporting access.' },
                         { id: 'manage_guests', label: 'Front Desk Office', description: 'Guests profiles, bookings, and check-ins.' },
                         { id: 'manage_rooms', label: 'Room Inventory', description: 'Configuring room statuses and pricing.' },
-                        { id: 'manage_restaurant', label: 'Food & Dining POS', description: 'Restaurant order pads & kitchen lists.' },
+                        { id: 'manage_restaurant', label: 'Food & Dining POS (Waiter Dashboard)', description: 'Restaurant order pads, waiter workload monitor, and kitchen lists.' },
+                        { id: 'manage_pos', label: 'Restaurant Cashier POS Terminal', description: 'Point of Sale billing, terminal ordering, and payment checkout.' },
                         { id: 'manage_inventory', label: 'Procure & Stock', description: 'Store inventories and supplier request grids.' },
                         { id: 'manage_accounting', label: 'HR, Payroll & General Ledgers', description: 'Staff directory, timesheets, payroll payslips, and transaction posting.' },
                         { id: 'manage_housekeeping', label: 'Operations & Repairs', description: 'Cleaning assignments, laundry lists, and repairs requests.' },

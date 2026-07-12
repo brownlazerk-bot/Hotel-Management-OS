@@ -30,7 +30,9 @@ import {
   RotateCcw,
   Sliders,
   FileText,
-  BadgeAlert
+  BadgeAlert,
+  Layers,
+  Bookmark
 } from 'lucide-react';
 
 // Recipe Ingredient Constants based on user request
@@ -61,8 +63,53 @@ const INGREDIENTS_RECIPES: Record<string, Array<{ productId: string; name: strin
 export default function RestaurantPOS() {
   const db = store.getDb();
   
+  // Waiter Role Check
+  const currentUser = store.getActiveUser();
+  const isUserWaiter = currentUser?.role === 'Waiter';
+
+  // Dynamic Tab Access Gating (Role-Based Console Access Control)
+  const showWaiterDashboard = store.hasPermission('manage_restaurant');
+  const showTablesSeating = store.hasPermission('manage_rooms') || store.hasPermission('manage_settings') || currentUser?.role === 'Manager';
+  const showCashierTerminal = store.hasPermission('manage_pos');
+  const showKitchenQueue = store.hasPermission('manage_restaurant') && (currentUser?.role === 'Chef' || store.hasPermission('manage_settings') || currentUser?.role === 'Manager');
+  const showReports = store.hasPermission('view_reports') || store.hasPermission('manage_settings');
+  const showShift = store.hasPermission('view_dashboard') || store.hasPermission('manage_settings');
+  const showMenuCatalog = store.hasPermission('manage_settings') || store.hasPermission('manage_inventory');
+
+  // Determine which tab to default to based on permissions
+  const defaultTab = useMemo(() => {
+    if (showWaiterDashboard && currentUser?.role === 'Waiter') return 'waiter_dashboard';
+    if (showTablesSeating) return 'tables';
+    if (showCashierTerminal) return 'terminal';
+    if (showKitchenQueue) return 'kitchen';
+    return 'waiter_dashboard';
+  }, [showWaiterDashboard, showTablesSeating, showCashierTerminal, showKitchenQueue, currentUser]);
+  
   // Tabs & Simulation Roles
-  const [activeTab, setActiveTab] = useState<'tables' | 'terminal' | 'kitchen' | 'reports' | 'shift' | 'menu'>('tables');
+  const [activeTab, setActiveTab] = useState<'tables' | 'terminal' | 'kitchen' | 'reports' | 'shift' | 'menu' | 'waiter_dashboard'>(
+    defaultTab
+  );
+
+  // Sync activeTab to permitted list if permissions change
+  useEffect(() => {
+    const allowed: string[] = [];
+    if (showWaiterDashboard) allowed.push('waiter_dashboard');
+    if (showTablesSeating) allowed.push('tables');
+    if (showCashierTerminal) allowed.push('terminal');
+    if (showKitchenQueue) allowed.push('kitchen');
+    if (showReports) allowed.push('reports');
+    if (showShift) allowed.push('shift');
+    if (showMenuCatalog) allowed.push('menu');
+
+    if (!allowed.includes(activeTab)) {
+      if (currentUser?.role === 'Waiter' && allowed.includes('waiter_dashboard')) {
+        setActiveTab('waiter_dashboard');
+      } else if (allowed.length > 0) {
+        setActiveTab(allowed[0] as any);
+      }
+    }
+  }, [showWaiterDashboard, showTablesSeating, showCashierTerminal, showKitchenQueue, showReports, showShift, showMenuCatalog, currentUser, activeTab]);
+
   const [simulatedRole, setSimulatedRole] = useState<'Cashier' | 'Kitchen' | 'Restaurant Manager' | 'Admin'>('Admin');
   
   // Menu Item Creator/Editor States
@@ -960,6 +1007,56 @@ export default function RestaurantPOS() {
     return list;
   }, [db.users, db.employees]);
 
+  // Waiter Workloads Calculation
+  const waiterWorkloads = useMemo(() => {
+    const activeOrders = db.restaurantOrders.filter(o => !['Completed', 'Cancelled'].includes(o.status));
+    const workloadMap: Record<string, { customerCount: number; tablesCount: number }> = {};
+    
+    activeOrders.forEach(order => {
+      const wId = order.waiterId || 'usr_cashier';
+      const countGuests = order.guestCount || 1;
+      
+      if (!workloadMap[wId]) {
+        workloadMap[wId] = { customerCount: 0, tablesCount: 0 };
+      }
+      workloadMap[wId].customerCount += countGuests;
+      workloadMap[wId].tablesCount += 1;
+    });
+    
+    return waitersList.map(waiter => {
+      const wl = workloadMap[waiter.id] || { customerCount: 0, tablesCount: 0 };
+      return {
+        id: waiter.id,
+        name: waiter.name,
+        customerCount: wl.customerCount,
+        tablesCount: wl.tablesCount,
+      };
+    }).sort((a, b) => b.customerCount - a.customerCount);
+  }, [db.restaurantOrders, waitersList]);
+
+  // Waiter Active and Past Orders
+  const myOrders = useMemo(() => {
+    if (!currentUser) return [];
+    return db.restaurantOrders.filter(order => {
+      const isMyId = order.waiterId === currentUser.id;
+      const isMyEmployeeId = currentUser.employeeId && order.waiterId === currentUser.employeeId;
+      return isMyId || isMyEmployeeId;
+    });
+  }, [db.restaurantOrders, currentUser]);
+
+  const handleDeliverOrder = (orderId: string) => {
+    const order = db.restaurantOrders.find(o => o.id === orderId);
+    if (order) {
+      order.status = 'Served';
+      store.addRestaurantOrder(order);
+      store.addNotification(
+        'Order Delivered',
+        `Order for ${order.tableId ? db.restaurantTables.find(t => t.id === order.tableId)?.tableNumber : 'Table'} has been served by ${currentUser?.name}.`,
+        'checkout'
+      );
+    }
+  };
+
   // Dynamically calculate reports on Reports Tab (Step 10)
   const reportStats = useMemo(() => {
     const completedOrders = db.restaurantOrders.filter(o => o.status === 'Completed' || o.status === 'Paid');
@@ -1152,81 +1249,107 @@ export default function RestaurantPOS() {
 
       {/* POS Tabbed Navigation */}
       <div className="bg-white p-2.5 rounded-2xl border border-gray-150 shadow-sm flex items-center justify-between flex-wrap gap-2">
-        <div className="flex space-x-1.5">
-          <button
-            onClick={() => setActiveTab('tables')}
-            className={`px-4 py-2 text-xs font-bold rounded-xl transition duration-150 border cursor-pointer flex items-center space-x-1.5 ${
-              activeTab === 'tables'
-                ? 'bg-[#1B4F72] text-white border-[#1B4F72] shadow-sm'
-                : 'bg-white text-gray-600 border-gray-150 hover:bg-gray-50'
-            }`}
-          >
-            <UtensilsCrossed className="h-3.5 w-3.5" />
-            <span>Tables seating plan</span>
-          </button>
+        <div className="flex space-x-1.5 flex-wrap gap-y-1.5">
+          {showWaiterDashboard && (
+            <button
+              onClick={() => setActiveTab('waiter_dashboard')}
+              className={`px-4 py-2 text-xs font-bold rounded-xl transition duration-150 border cursor-pointer flex items-center space-x-1.5 ${
+                activeTab === 'waiter_dashboard'
+                  ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                  : 'bg-white text-gray-600 border-gray-150 hover:bg-gray-50'
+              }`}
+            >
+              <Layers className="h-3.5 w-3.5 text-indigo-500" />
+              <span>Waiter Dashboard</span>
+            </button>
+          )}
 
-          <button
-            onClick={() => {
-              setEditingOrderId(null);
-              setActiveTab('terminal');
-            }}
-            className={`px-4 py-2 text-xs font-bold rounded-xl transition duration-150 border cursor-pointer flex items-center space-x-1.5 ${
-              activeTab === 'terminal'
-                ? 'bg-[#1B4F72] text-white border-[#1B4F72] shadow-sm'
-                : 'bg-white text-gray-600 border-gray-150 hover:bg-gray-50'
-            }`}
-          >
-            <Plus className="h-3.5 w-3.5" />
-            <span>Cashier POS Terminal</span>
-          </button>
+          {showTablesSeating && (
+            <button
+              onClick={() => setActiveTab('tables')}
+              className={`px-4 py-2 text-xs font-bold rounded-xl transition duration-150 border cursor-pointer flex items-center space-x-1.5 ${
+                activeTab === 'tables'
+                  ? 'bg-[#1B4F72] text-white border-[#1B4F72] shadow-sm'
+                  : 'bg-white text-gray-600 border-gray-150 hover:bg-gray-50'
+              }`}
+            >
+              <UtensilsCrossed className="h-3.5 w-3.5" />
+              <span>Tables seating plan</span>
+            </button>
+          )}
 
-          <button
-            onClick={() => setActiveTab('kitchen')}
-            className={`px-4 py-2 text-xs font-bold rounded-xl transition duration-150 border cursor-pointer flex items-center space-x-1.5 ${
-              activeTab === 'kitchen'
-                ? 'bg-[#1B4F72] text-white border-[#1B4F72] shadow-sm'
-                : 'bg-white text-gray-600 border-gray-150 hover:bg-gray-50'
-            }`}
-          >
-            <ChefHat className="h-3.5 w-3.5" />
-            <span>Kitchen Display Queue</span>
-          </button>
+          {showCashierTerminal && (
+            <button
+              onClick={() => {
+                setEditingOrderId(null);
+                setActiveTab('terminal');
+              }}
+              className={`px-4 py-2 text-xs font-bold rounded-xl transition duration-150 border cursor-pointer flex items-center space-x-1.5 ${
+                activeTab === 'terminal'
+                  ? 'bg-[#1B4F72] text-white border-[#1B4F72] shadow-sm'
+                  : 'bg-white text-gray-600 border-gray-150 hover:bg-gray-50'
+              }`}
+            >
+              <Plus className="h-3.5 w-3.5" />
+              <span>Cashier POS Terminal</span>
+            </button>
+          )}
 
-          <button
-            onClick={() => setActiveTab('reports')}
-            className={`px-4 py-2 text-xs font-bold rounded-xl transition duration-150 border cursor-pointer flex items-center space-x-1.5 ${
-              activeTab === 'reports'
-                ? 'bg-[#1B4F72] text-white border-[#1B4F72] shadow-sm'
-                : 'bg-white text-gray-600 border-gray-150 hover:bg-gray-50'
-            }`}
-          >
-            <TrendingUp className="h-3.5 w-3.5" />
-            <span>Reports & Recipes</span>
-          </button>
+          {showKitchenQueue && (
+            <button
+              onClick={() => setActiveTab('kitchen')}
+              className={`px-4 py-2 text-xs font-bold rounded-xl transition duration-150 border cursor-pointer flex items-center space-x-1.5 ${
+                activeTab === 'kitchen'
+                  ? 'bg-[#1B4F72] text-white border-[#1B4F72] shadow-sm'
+                  : 'bg-white text-gray-600 border-gray-150 hover:bg-gray-50'
+              }`}
+            >
+              <ChefHat className="h-3.5 w-3.5" />
+              <span>Kitchen Display Queue</span>
+            </button>
+          )}
 
-          <button
-            onClick={() => setActiveTab('shift')}
-            className={`px-4 py-2 text-xs font-bold rounded-xl transition duration-150 border cursor-pointer flex items-center space-x-1.5 ${
-              activeTab === 'shift'
-                ? 'bg-[#1B4F72] text-white border-[#1B4F72] shadow-sm'
-                : 'bg-white text-gray-600 border-gray-150 hover:bg-gray-50'
-            }`}
-          >
-            <DollarSign className="h-3.5 w-3.5" />
-            <span>Shift & Cashier reconciliation</span>
-          </button>
+          {showReports && (
+            <button
+              onClick={() => setActiveTab('reports')}
+              className={`px-4 py-2 text-xs font-bold rounded-xl transition duration-150 border cursor-pointer flex items-center space-x-1.5 ${
+                activeTab === 'reports'
+                  ? 'bg-[#1B4F72] text-white border-[#1B4F72] shadow-sm'
+                  : 'bg-white text-gray-600 border-gray-150 hover:bg-gray-50'
+              }`}
+            >
+              <TrendingUp className="h-3.5 w-3.5" />
+              <span>Reports & Recipes</span>
+            </button>
+          )}
 
-          <button
-            onClick={() => setActiveTab('menu')}
-            className={`px-4 py-2 text-xs font-bold rounded-xl transition duration-150 border cursor-pointer flex items-center space-x-1.5 ${
-              activeTab === 'menu'
-                ? 'bg-[#1B4F72] text-white border-[#1B4F72] shadow-sm'
-                : 'bg-white text-gray-600 border-gray-150 hover:bg-gray-50'
-            }`}
-          >
-            <ClipboardList className="h-3.5 w-3.5" />
-            <span>Menu Catalog Manager</span>
-          </button>
+          {showShift && (
+            <button
+              onClick={() => setActiveTab('shift')}
+              className={`px-4 py-2 text-xs font-bold rounded-xl transition duration-150 border cursor-pointer flex items-center space-x-1.5 ${
+                activeTab === 'shift'
+                  ? 'bg-[#1B4F72] text-white border-[#1B4F72] shadow-sm'
+                  : 'bg-white text-gray-600 border-gray-150 hover:bg-gray-50'
+              }`}
+            >
+              <DollarSign className="h-3.5 w-3.5" />
+              <span>Shift & Cashier reconciliation</span>
+            </button>
+          )}
+
+          {showMenuCatalog && (
+            <button
+              onClick={() => setActiveTab('menu')}
+              className={`px-4 py-2 text-xs font-bold rounded-xl transition duration-150 border cursor-pointer flex items-center space-x-1.5 ${
+                activeTab === 'menu'
+                  ? 'bg-[#1B4F72] text-white border-[#1B4F72] shadow-sm'
+                  : 'bg-white text-gray-600 border-gray-150 hover:bg-gray-50'
+              }`}
+            >
+              <ClipboardList className="h-3.5 w-3.5" />
+              <span>Menu Catalog Manager</span>
+            </button>
+          )}
         </div>
 
         {/* Offline sync banner if offline items exist */}
@@ -1246,6 +1369,298 @@ export default function RestaurantPOS() {
 
         {/* Dynamic Center Work Area */}
         <div className="xl:col-span-3 space-y-6">
+
+          {/* TAB 7: WAITER DASHBOARD */}
+          {activeTab === 'waiter_dashboard' && (
+            <div className="space-y-6 animate-fadeIn font-sans">
+              
+              {/* Header Stats */}
+              <div className="bg-gradient-to-r from-indigo-700 to-indigo-900 rounded-3xl p-6 text-white shadow-md relative overflow-hidden">
+                <div className="absolute right-0 top-0 opacity-10 transform translate-x-12 -translate-y-12">
+                  <UtensilsCrossed className="w-64 h-64 text-white" />
+                </div>
+                <div className="relative z-10 space-y-4">
+                  <div className="flex justify-between items-center flex-wrap gap-4">
+                    <div>
+                      <span className="text-xs font-bold tracking-widest uppercase text-indigo-200">Server Station Terminal</span>
+                      <h2 className="text-2xl font-black">{currentUser?.name || 'Tariq Mendez'}</h2>
+                      <p className="text-xs text-indigo-100 mt-1">Logged in as: <span className="font-mono bg-indigo-800/50 px-2 py-0.5 rounded">{currentUser?.role || 'Waiter'}</span></p>
+                    </div>
+                    <div className="flex space-x-2">
+                      <button
+                        onClick={() => {
+                          setOrderType('Dine In');
+                          setSelectedTableId('');
+                          setCart([]);
+                          setEditingOrderId(null);
+                          setActiveTab('terminal');
+                        }}
+                        className="px-4 py-2.5 bg-white text-indigo-700 font-bold rounded-xl text-xs hover:bg-indigo-50 transition cursor-pointer shadow-sm flex items-center space-x-1"
+                      >
+                        <Plus className="h-4 w-4" />
+                        <span>New Dine-In Order</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-4 border-t border-indigo-600/50 text-center">
+                    <div>
+                      <div className="text-xl font-black">{myOrders.filter(o => !['Completed', 'Cancelled'].includes(o.status)).length}</div>
+                      <div className="text-[10px] text-indigo-200 uppercase font-bold tracking-wider">Active Tables</div>
+                    </div>
+                    <div>
+                      <div className="text-xl font-black">{myOrders.filter(o => o.status === 'Ready').length}</div>
+                      <div className="text-[10px] text-indigo-200 uppercase font-bold tracking-wider">Ready to Serve</div>
+                    </div>
+                    <div>
+                      <div className="text-xl font-black">{myOrders.filter(o => o.status === 'Completed' || o.status === 'Paid').length}</div>
+                      <div className="text-[10px] text-indigo-200 uppercase font-bold tracking-wider">Today's Settled</div>
+                    </div>
+                    <div>
+                      <div className="text-xl font-black text-green-300">
+                        ${myOrders.reduce((sum, o) => sum + (o.status === 'Completed' || o.status === 'Paid' ? o.total : 0), 0).toFixed(2)}
+                      </div>
+                      <div className="text-[10px] text-indigo-200 uppercase font-bold tracking-wider">My Sales Revenue</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Layout Map and Active Tickets section */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                
+                {/* Left Side: Order list and active tables */}
+                <div className="lg:col-span-2 space-y-6">
+                  
+                  {/* Active Orders List */}
+                  <div className="bg-white p-5 rounded-3xl border border-gray-150 shadow-sm space-y-4">
+                    <div className="flex items-center justify-between pb-3 border-b border-gray-100 flex-wrap gap-2">
+                      <div>
+                        <h3 className="text-sm font-bold text-gray-800">My Server Tickets & Dining Status</h3>
+                        <p className="text-xs text-gray-400 mt-0.5">Track your tables' food prep, delivery status, and payment pending state.</p>
+                      </div>
+                    </div>
+
+                    {myOrders.length === 0 ? (
+                      <div className="text-center py-10 bg-slate-50 border border-dashed border-gray-200 rounded-2xl space-y-3">
+                        <Coffee className="h-10 w-10 text-gray-300 mx-auto animate-pulse" />
+                        <div>
+                          <p className="text-xs font-bold text-gray-500">You don't have any orders assigned yet.</p>
+                          <p className="text-[11px] text-gray-400 mt-1">Create a new dine-in order, or ask the cashier to assign you to a table.</p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        {myOrders.map(order => {
+                          const table = db.restaurantTables.find(t => t.id === order.tableId);
+                          const isAssignedByCashier = order.waiterId === currentUser?.id;
+                          
+                          return (
+                            <div key={order.id} className="p-4 rounded-2xl border border-gray-150 bg-slate-50/50 hover:bg-slate-50 transition space-y-3">
+                              <div className="flex items-center justify-between flex-wrap gap-2">
+                                <div className="flex items-center space-x-2">
+                                  <span className="font-mono text-xs font-black bg-indigo-100 text-indigo-800 px-2.5 py-0.5 rounded">
+                                    {table ? table.tableNumber : 'Walk-In'}
+                                  </span>
+                                  <span className="text-[11px] text-gray-500">Order #{order.orderNumber || order.id.substring(4, 9)}</span>
+                                  {isAssignedByCashier && (
+                                    <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded animate-pulse">
+                                      🔔 Assigned By Cashier
+                                    </span>
+                                  )}
+                                </div>
+                                <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${
+                                  order.status === 'Completed' || order.status === 'Paid' ? 'bg-green-100 text-green-700' :
+                                  order.status === 'Ready' ? 'bg-rose-100 text-rose-700 animate-bounce' :
+                                  order.status === 'Sent to Kitchen' ? 'bg-blue-100 text-blue-700' :
+                                  'bg-amber-100 text-amber-700'
+                                }`}>
+                                  {order.status}
+                                </span>
+                              </div>
+
+                              {/* Order items summary */}
+                              <div className="text-xs text-gray-600 bg-white p-3 rounded-xl border border-gray-100 space-y-1">
+                                <div className="font-bold text-[10px] text-gray-400 uppercase tracking-wider mb-1">Dishes / Drinks Ordered</div>
+                                {order.items.map((item, idx) => {
+                                  const mItem = db.menuItems.find(m => m.id === item.menuItemId);
+                                  return (
+                                    <div key={idx} className="flex justify-between text-[11px]">
+                                      <span>{item.quantity}x {mItem?.name || 'Menu Item'}</span>
+                                      <span className="font-mono text-gray-400">${(item.quantity * item.price).toFixed(2)}</span>
+                                    </div>
+                                  );
+                                })}
+                                <div className="border-t border-dashed pt-1.5 mt-1.5 flex justify-between font-bold text-slate-800">
+                                  <span>Total Bill Amount</span>
+                                  <span className="font-mono text-indigo-700">${order.total.toFixed(2)}</span>
+                                </div>
+                              </div>
+
+                              {/* Action triggers */}
+                              <div className="flex items-center justify-end space-x-2">
+                                {order.status === 'Ready' && (
+                                  <button
+                                    onClick={() => handleDeliverOrder(order.id)}
+                                    className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-[11px] font-bold rounded-lg transition cursor-pointer flex items-center space-x-1"
+                                  >
+                                    <span>Deliver to Table ✅</span>
+                                  </button>
+                                )}
+                                {!['Completed', 'Cancelled', 'Paid'].includes(order.status) && (
+                                  <button
+                                    onClick={() => {
+                                      setCart(order.items);
+                                      setSelectedTableId(order.tableId || '');
+                                      setOrderType('Dine In');
+                                      setEditingOrderId(order.id);
+                                      setPosDiscount(order.discount);
+                                      setActiveTab('terminal');
+                                    }}
+                                    className="px-3 py-1.5 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 text-[11px] font-bold rounded-lg transition cursor-pointer shadow-sm"
+                                  >
+                                    Add/Edit Items
+                                  </button>
+                                )}
+                                {order.status === 'Served' && (
+                                  <span className="text-[11px] text-gray-400 italic">Dishes served. Awaiting cashier checkout.</span>
+                                )}
+                                {(order.status === 'Completed' || order.status === 'Paid') && (
+                                  <span className="text-[11px] text-green-600 font-bold">✓ Paid & Settled</span>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Right Side Column: Table Reservations, Workloads */}
+                <div className="space-y-6">
+                  
+                  {/* Table Reservation status */}
+                  <div className="bg-white p-5 rounded-3xl border border-gray-150 shadow-sm space-y-4">
+                    <div className="flex items-center justify-between pb-2 border-b border-gray-100">
+                      <h3 className="text-sm font-bold text-gray-800 flex items-center gap-1.5">
+                        <UtensilsCrossed className="h-4 w-4 text-indigo-600" /> Tables & Reservations
+                      </h3>
+                      <span className="text-[10px] font-bold bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded">All Rooms</span>
+                    </div>
+
+                    <p className="text-xs text-gray-500">
+                      Click to quickly reserve or release a table. Reserved tables show red to prevent double-booking.
+                    </p>
+
+                    <div className="grid grid-cols-2 gap-2 max-h-72 overflow-y-auto pr-1">
+                      {db.restaurantTables.map(tbl => {
+                        const isReserved = tbl.status === 'Reserved';
+                        const isOccupied = tbl.status === 'Occupied';
+                        
+                        return (
+                          <div 
+                            key={tbl.id} 
+                            className={`p-2.5 rounded-xl border transition text-left relative flex flex-col justify-between ${
+                              isReserved ? 'bg-purple-50/50 border-purple-200 text-purple-950' :
+                              isOccupied ? 'bg-blue-50/50 border-blue-200 text-[#1B4F72]' :
+                              'bg-green-50/50 border-green-200 text-green-950'
+                            }`}
+                          >
+                            <div className="space-y-1">
+                              <span className="text-xs font-black block">{tbl.tableNumber}</span>
+                              <span className="text-[9px] text-gray-500 block">Cap: {tbl.capacity} Pax</span>
+                            </div>
+                            
+                            <div className="mt-2.5 flex justify-between items-center gap-1">
+                              <span className={`text-[8px] font-black uppercase px-1 py-0.5 rounded ${
+                                isReserved ? 'bg-purple-100 text-purple-700' :
+                                isOccupied ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'
+                              }`}>
+                                {isReserved ? 'Reserved' : isOccupied ? 'Occupied' : 'Free'}
+                              </span>
+                              
+                              <button
+                                onClick={() => {
+                                  const updatedTbl: RestaurantTable = {
+                                    ...tbl,
+                                    status: isReserved ? 'Available' : 'Reserved'
+                                  };
+                                  store.saveRestaurantTable(updatedTbl);
+                                  store.addAuditLog(
+                                    isReserved ? 'Release Table Reservation' : 'Reserve Table',
+                                    'Restaurant',
+                                    `${currentUser?.name || 'Waiter'} marked ${tbl.tableNumber} as ${updatedTbl.status}`
+                                  );
+                                  store.addNotification(
+                                    'Table Reservation Updated',
+                                    `"${tbl.tableNumber}" is now marked as ${updatedTbl.status}.`,
+                                    'maintenance'
+                                  );
+                                }}
+                                disabled={isOccupied}
+                                className={`px-1.5 py-0.5 rounded text-[8px] font-bold border cursor-pointer hover:bg-white transition ${
+                                  isOccupied ? 'opacity-30 cursor-not-allowed bg-transparent' : 'bg-white/80 border-gray-300 text-slate-700'
+                                }`}
+                              >
+                                {isReserved ? 'Release' : 'Reserve'}
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Waiter Workload Monitor */}
+                  <div className="bg-white p-5 rounded-3xl border border-gray-150 shadow-sm space-y-4">
+                    <div className="flex items-center justify-between pb-2 border-b border-gray-100">
+                      <h3 className="text-sm font-bold text-gray-800 flex items-center gap-1.5">
+                        <Users className="h-4 w-4 text-[#1B4F72]" /> Waiter Workload Monitor
+                      </h3>
+                      <span className="text-[10px] text-gray-400 font-mono">Live Load</span>
+                    </div>
+
+                    <p className="text-xs text-gray-500">
+                      Assigned customers per waitstaff. Sorts highest first so you can equitably distribute table seatings.
+                    </p>
+
+                    <div className="space-y-2.5 max-h-60 overflow-y-auto">
+                      {waiterWorkloads.map(w => {
+                        const maxCustomers = 15;
+                        const percentage = Math.min(100, (w.customerCount / maxCustomers) * 100);
+                        
+                        return (
+                          <div key={w.id} className="p-3 bg-slate-50 rounded-xl border border-gray-100 space-y-2">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="font-bold text-slate-700">{w.name}</span>
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${
+                                w.customerCount >= 10 ? 'bg-amber-100 text-amber-700 animate-pulse' : 'bg-green-100 text-green-700'
+                              }`}>
+                                {w.customerCount} Guests ({w.tablesCount} Tables)
+                              </span>
+                            </div>
+                            
+                            {/* Progress Bar */}
+                            <div className="w-full bg-gray-200 rounded-full h-1.5">
+                              <div 
+                                className={`h-1.5 rounded-full transition-all duration-300 ${
+                                  w.customerCount >= 10 ? 'bg-amber-500' : 'bg-indigo-600'
+                                }`}
+                                style={{ width: `${percentage}%` }}
+                              />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                </div>
+              </div>
+
+            </div>
+          )}
 
           {/* TAB 1: DINING TABLES SEATING PLAN */}
           {activeTab === 'tables' && (
@@ -1341,8 +1756,117 @@ export default function RestaurantPOS() {
                 </div>
               </div>
 
-              {/* Sidebar table addition */}
-              <div className="bg-white p-5 rounded-2xl border border-gray-150 shadow-sm h-fit">
+              <div className="space-y-6">
+                
+                {/* Waiter Workload Monitor (Main Map View) */}
+                <div className="bg-white p-5 rounded-2xl border border-gray-150 shadow-sm h-fit space-y-4">
+                  <div className="flex items-center justify-between pb-2 border-b border-gray-100">
+                    <h3 className="text-sm font-bold text-gray-800 flex items-center gap-1.5">
+                      <Users className="h-4 w-4 text-[#1B4F72]" /> Waiter Workload Monitor
+                    </h3>
+                    <span className="text-[10px] text-gray-400 font-mono">Live Load</span>
+                  </div>
+                  
+                  <p className="text-xs text-gray-500">
+                    Review current guest allocations to distribute incoming customer seats equitably among waitstaff.
+                  </p>
+
+                  <div className="space-y-2.5 max-h-52 overflow-y-auto pr-1">
+                    {waiterWorkloads.map(w => {
+                      const maxCustomers = 15;
+                      const percentage = Math.min(100, (w.customerCount / maxCustomers) * 100);
+                      
+                      return (
+                        <div key={w.id} className="p-3 bg-slate-50 rounded-xl border border-gray-100 space-y-2">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="font-bold text-slate-700">{w.name}</span>
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${
+                              w.customerCount >= 10 ? 'bg-amber-100 text-amber-700 animate-pulse' : 'bg-green-100 text-green-700'
+                            }`}>
+                              {w.customerCount} Guests ({w.tablesCount} Tables)
+                            </span>
+                          </div>
+                          
+                          {/* Progress Bar */}
+                          <div className="w-full bg-gray-200 rounded-full h-1.5">
+                            <div 
+                              className={`h-1.5 rounded-full transition-all duration-300 ${
+                                w.customerCount >= 10 ? 'bg-amber-500' : 'bg-indigo-600'
+                              }`}
+                              style={{ width: `${percentage}%` }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Quick Reservation Manager Card */}
+                <div className="bg-white p-5 rounded-2xl border border-gray-150 shadow-sm h-fit space-y-4">
+                  <div className="flex items-center justify-between pb-2 border-b border-gray-100">
+                    <h3 className="text-sm font-bold text-gray-800 flex items-center gap-1.5">
+                      <Bookmark className="h-4 w-4 text-purple-600" /> Table Reservations
+                    </h3>
+                    <span className="text-[10px] font-mono text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded uppercase font-bold">Manage</span>
+                  </div>
+                  
+                  <p className="text-xs text-gray-500">
+                    Quickly toggle reservation locks for any seating table.
+                  </p>
+
+                  <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-1">
+                    {db.restaurantTables.map(tbl => {
+                      const isReserved = tbl.status === 'Reserved';
+                      const isOccupied = tbl.status === 'Occupied';
+                      
+                      return (
+                        <div 
+                          key={tbl.id} 
+                          className={`p-2 rounded-xl border flex flex-col justify-between text-left ${
+                            isReserved ? 'bg-purple-50/40 border-purple-200 text-purple-900' :
+                            isOccupied ? 'bg-blue-50/40 border-blue-200 text-[#1B4F72]' :
+                            'bg-green-50/40 border-green-200 text-green-900'
+                          }`}
+                        >
+                          <div>
+                            <span className="text-xs font-bold block">{tbl.tableNumber}</span>
+                            <span className="text-[8px] text-gray-500 block uppercase font-bold">{tbl.status}</span>
+                          </div>
+                          
+                          <button
+                            onClick={() => {
+                              const updatedTbl: RestaurantTable = {
+                                ...tbl,
+                                status: isReserved ? 'Available' : 'Reserved'
+                              };
+                              store.saveRestaurantTable(updatedTbl);
+                              store.addAuditLog(
+                                isReserved ? 'Release Table Reservation' : 'Reserve Table',
+                                'Restaurant',
+                                `${currentUser?.name || 'Cashier'} updated reservation lock on ${tbl.tableNumber}`
+                              );
+                              store.addNotification(
+                                'Table Reservation Updated',
+                                `"${tbl.tableNumber}" is now marked as ${updatedTbl.status}.`,
+                                'maintenance'
+                              );
+                            }}
+                            disabled={isOccupied}
+                            className={`mt-2 w-full text-center py-0.5 text-[8px] rounded border font-bold cursor-pointer transition ${
+                              isOccupied ? 'opacity-30 cursor-not-allowed bg-transparent' : 'bg-white border-gray-200 hover:bg-gray-50 text-slate-700'
+                            }`}
+                          >
+                            {isReserved ? 'Free' : 'Reserve'}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Sidebar table addition */}
+                <div className="bg-white p-5 rounded-2xl border border-gray-150 shadow-sm h-fit">
                 <h3 className="text-sm font-bold text-gray-800 mb-4 flex items-center">
                   <Plus className="h-4 w-4 mr-1 text-[#E67E22]" /> Deploy Seating Table
                 </h3>
@@ -1381,7 +1905,8 @@ export default function RestaurantPOS() {
                 </form>
               </div>
             </div>
-          )}
+          </div>
+        )}
 
           {/* TAB 2: TOUCH SCREEN ORDER TERMINAL */}
           {activeTab === 'terminal' && (

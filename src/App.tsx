@@ -159,6 +159,9 @@ export default function App() {
   const allowedTabs = tabs.filter(tab => {
     if (!activeUser) return false;
     if (activeUser.role === 'Super Admin') return true;
+    if (tab.id === 'dining') {
+      return store.hasPermission('manage_restaurant') || store.hasPermission('manage_pos');
+    }
     return store.hasPermission(tab.permission as any);
   });
 

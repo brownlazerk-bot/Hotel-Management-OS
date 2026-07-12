@@ -81,7 +81,7 @@ const DEFAULT_ROLES: Role[] = [
   { id: '4', name: 'Receptionist', description: 'Guest front desk agent.', permissions: ['view_dashboard', 'manage_guests', 'manage_rooms', 'manage_housekeeping', 'view_reports'] },
   { id: '5', name: 'Accountant', description: 'Financial ledger manager.', permissions: ['view_dashboard', 'manage_accounting', 'manage_payroll', 'manage_purchasing', 'view_reports'] },
   { id: '6', name: 'Cashier', description: 'Point of Sale payment specialist.', permissions: ['view_dashboard', 'manage_pos'] },
-  { id: '7', name: 'Waiter', description: 'Restaurant order management.', permissions: ['manage_restaurant'] },
+  { id: '7', name: 'Waiter', description: 'Restaurant order management.', permissions: ['manage_restaurant', 'manage_pos'] },
   { id: '8', name: 'Chef', description: 'Kitchen queue operator.', permissions: ['manage_restaurant'] },
   { id: '9', name: 'Housekeeper', description: 'Room cleaning and sanitizing technician.', permissions: ['manage_housekeeping'] },
   { id: '10', name: 'Storekeeper', description: 'Stock room guard.', permissions: ['manage_inventory', 'manage_purchasing'] },
@@ -227,6 +227,15 @@ class HotelStore {
           }
           sessionStorage.removeItem('hotel_os_session');
         } else {
+          // Migration: Ensure Waiter role has both manage_restaurant and manage_pos if roles are already stored
+          if (parsed.roles) {
+            parsed.roles = parsed.roles.map((r: any) => {
+              if (r.name === 'Waiter' && !r.permissions.includes('manage_pos') && !r.permissions.includes('all')) {
+                return { ...r, permissions: [...r.permissions, 'manage_pos'] };
+              }
+              return r;
+            });
+          }
           return {
             ...INITIAL_STATE,
             ...parsed,
