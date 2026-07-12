@@ -117,6 +117,11 @@ export default function RestaurantPOS() {
   const [posPaymentMethod, setPosPaymentMethod] = useState<PaymentMethod>('Cash');
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
   
+  // Settle bill / payment states
+  const [posSideTab, setPosSideTab] = useState<'create' | 'payment'>('create');
+  const [selectedSettleOrderId, setSelectedSettleOrderId] = useState<string>('');
+  const [settlePaymentMethod, setSettlePaymentMethod] = useState<PaymentMethod>('Cash');
+  
   // Menu Category Filter & Search
   const [menuFilterCategory, setMenuFilterCategory] = useState<string>('All');
   const [menuSearchQuery, setMenuSearchQuery] = useState<string>('');
@@ -1519,276 +1524,522 @@ export default function RestaurantPOS() {
               {/* Cashier Order placing side panel (Steps 1 to 5) */}
               <div className="bg-[#F8F9FA] p-5 rounded-2xl border border-gray-150 flex flex-col justify-between h-fit space-y-4">
                 <div>
-                  <div className="pb-3 border-b border-gray-200 mb-4 flex items-center justify-between">
-                    <div>
-                      <h3 className="text-sm font-black text-slate-800">
-                        {editingOrderId ? '✏️ Edit Customer Order' : '📝 Create Customer Order'}
-                      </h3>
-                      <p className="text-[10px] text-slate-400">Complete service type and guest instructions.</p>
-                    </div>
-                    {editingOrderId && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setCart([]);
-                          setSelectedTableId('');
-                          setRoomNumber('');
-                          setCustomerName('');
-                          setGuestCount(1);
-                          setSpecialInstructions('');
-                          setSelectedWaiterId('');
-                          setEditingOrderId(null);
-                          setPosDiscount(0);
-                          setPrintToast('Switched back to Create Order mode.');
-                        }}
-                        className="text-[9px] bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold px-2 py-1 rounded-lg transition"
-                      >
-                        Reset / New
-                      </button>
-                    )}
+                  {/* Tab Selector for Create Order vs Settle Payment */}
+                  <div className="flex bg-gray-200/50 p-1 rounded-xl mb-4">
+                    <button
+                      type="button"
+                      onClick={() => setPosSideTab('create')}
+                      className={`flex-1 py-1.5 text-[11px] font-bold rounded-lg transition duration-150 flex items-center justify-center gap-1 ${
+                        posSideTab === 'create'
+                          ? 'bg-white text-[#1B4F72] shadow-sm'
+                          : 'text-slate-500 hover:bg-white/40'
+                      }`}
+                    >
+                      <span>🛒 Cart Builder</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPosSideTab('payment')}
+                      className={`flex-1 py-1.5 text-[11px] font-bold rounded-lg transition duration-150 flex items-center justify-center gap-1 ${
+                        posSideTab === 'payment'
+                          ? 'bg-white text-emerald-800 shadow-sm'
+                          : 'text-slate-500 hover:bg-white/40'
+                      }`}
+                    >
+                      <span>💳 Pay & Settle</span>
+                      <span className="bg-emerald-600 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full shrink-0">
+                        {db.restaurantOrders.filter(o => o.status !== 'Completed' && o.status !== 'Paid' && o.status !== 'Cancelled').length}
+                      </span>
+                    </button>
                   </div>
 
-                  {/* Order Type Select */}
-                  <div className="space-y-3.5">
-                    {/* Quick Active Order Selector */}
-                    <div>
-                      <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Choose Existing Order to Edit</label>
-                      <select
-                        value={editingOrderId || ''}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          if (!val) {
-                            setCart([]);
-                            setSelectedTableId('');
-                            setRoomNumber('');
-                            setCustomerName('');
-                            setGuestCount(1);
-                            setSpecialInstructions('');
-                            setEditingOrderId(null);
-                            setPosDiscount(0);
-                          } else {
-                            const found = db.restaurantOrders.find(o => o.id === val);
-                            if (found) {
-                              loadOrderForEditing(found);
+                  {posSideTab === 'create' ? (
+                    <>
+                      <div className="pb-3 border-b border-gray-200 mb-4 flex items-center justify-between">
+                        <div>
+                          <h3 className="text-sm font-black text-slate-800">
+                            {editingOrderId ? '✏️ Edit Customer Order' : '📝 Create Customer Order'}
+                          </h3>
+                          <p className="text-[10px] text-slate-400">Complete service type and guest instructions.</p>
+                        </div>
+                        {editingOrderId && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCart([]);
+                              setSelectedTableId('');
+                              setRoomNumber('');
+                              setCustomerName('');
+                              setGuestCount(1);
+                              setSpecialInstructions('');
+                              setSelectedWaiterId('');
+                              setEditingOrderId(null);
+                              setPosDiscount(0);
+                              setPrintToast('Switched back to Create Order mode.');
+                            }}
+                            className="text-[9px] bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold px-2 py-1 rounded-lg transition"
+                          >
+                            Reset / New
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Order Type Select */}
+                      <div className="space-y-3.5">
+                        {/* Quick Active Order Selector */}
+                        <div>
+                          <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Choose Existing Order to Edit</label>
+                          <select
+                            value={editingOrderId || ''}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              if (!val) {
+                                setCart([]);
+                                setSelectedTableId('');
+                                setRoomNumber('');
+                                setCustomerName('');
+                                setGuestCount(1);
+                                setSpecialInstructions('');
+                                setEditingOrderId(null);
+                                setPosDiscount(0);
+                              } else {
+                                const found = db.restaurantOrders.find(o => o.id === val);
+                                if (found) {
+                                  loadOrderForEditing(found);
+                                }
+                              }
+                            }}
+                            className="w-full px-2.5 py-1.5 bg-white border border-gray-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:border-[#1B4F72] font-semibold"
+                          >
+                            <option value="">-- Start New / Create New Order --</option>
+                            {db.restaurantOrders
+                              .filter(o => o.status !== 'Completed' && o.status !== 'Paid' && o.status !== 'Cancelled')
+                              .map(o => (
+                                <option key={o.id} value={o.id}>
+                                  {o.orderNumber || o.id.slice(-4)} - {o.customerName || 'Walk-in'} (${o.total.toFixed(2)}) [{o.status}]
+                                </option>
+                              ))}
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Service Type</label>
+                          <div className="grid grid-cols-3 gap-1 bg-gray-200/50 p-1 rounded-xl">
+                            {(['Dine In', 'Take Away', 'Room Service'] as const).map(type => (
+                              <button
+                                key={type}
+                                type="button"
+                                onClick={() => setOrderType(type)}
+                                className={`py-1 text-[10px] font-bold rounded-lg transition ${
+                                  orderType === type ? 'bg-[#1B4F72] text-white shadow' : 'text-slate-600 hover:bg-slate-200'
+                                }`}
+                              >
+                                {type}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Table Select / Room Number Input */}
+                        {orderType === 'Dine In' && (
+                          <div>
+                            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Seated Table</label>
+                            <select
+                              required
+                              value={selectedTableId}
+                              onChange={(e) => setSelectedTableId(e.target.value)}
+                              className="w-full px-2.5 py-1.5 bg-white border border-gray-200 rounded-xl text-xs text-slate-800 focus:outline-none"
+                            >
+                              <option value="">-- Choose Table --</option>
+                              {db.restaurantTables.map(t => (
+                                <option key={t.id} value={t.id}>{t.tableNumber} ({t.status})</option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+
+                        {orderType === 'Room Service' && (
+                          <div>
+                            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Room Number</label>
+                            <input
+                              type="text"
+                              required
+                              placeholder="e.g. 501 (Penthouse)"
+                              className="w-full px-3 py-1.5 bg-white border border-gray-200 rounded-xl text-xs text-slate-800 focus:outline-none font-bold"
+                              value={roomNumber}
+                              onChange={(e) => setRoomNumber(e.target.value)}
+                            />
+                          </div>
+                        )}
+
+                        {/* Optional details */}
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Customer Name</label>
+                            <input
+                              type="text"
+                              placeholder="Optional"
+                              className="w-full px-2 py-1.5 bg-white border border-gray-200 rounded-xl text-xs text-slate-800"
+                              value={customerName}
+                              onChange={(e) => setCustomerName(e.target.value)}
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Guests Count</label>
+                            <input
+                              type="number"
+                              min={1}
+                              max={30}
+                              className="w-full px-2 py-1.5 bg-white border border-gray-200 rounded-xl text-xs font-bold text-slate-800"
+                              value={guestCount}
+                              onChange={(e) => setGuestCount(Number(e.target.value))}
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Serving Waiter / Staff</label>
+                          <select
+                            value={selectedWaiterId}
+                            onChange={(e) => setSelectedWaiterId(e.target.value)}
+                            className="w-full px-2.5 py-1.5 bg-white border border-gray-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:border-[#1B4F72] font-semibold"
+                          >
+                            <option value="">-- Choose Serving Waiter (Auto-select active) --</option>
+                            {waitersList.map(w => (
+                              <option key={w.id} value={w.id}>{w.name}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Special Instructions (KOT)</label>
+                          <textarea
+                            rows={2}
+                            placeholder="e.g. Extra spicy, sauce on side, allergies..."
+                            className="w-full px-3 py-1.5 bg-white border border-gray-200 rounded-xl text-xs text-slate-800 focus:outline-none"
+                            value={specialInstructions}
+                            onChange={(e) => setSpecialInstructions(e.target.value)}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Display Cart Items list */}
+                      <div className="mt-4 border-t border-gray-200 pt-3 space-y-2">
+                        <span className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider">Order Items list ({cart.length})</span>
+                        {cart.length === 0 ? (
+                          <p className="text-[10px] text-gray-400 italic py-3 text-center">No items added yet.</p>
+                        ) : (
+                          <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                            {cart.map(it => (
+                              <div key={it.menuItemId} className="flex justify-between items-center text-xs bg-white border p-1.5 rounded-xl shadow-sm">
+                                <span className="font-semibold text-slate-700 truncate max-w-[120px]">{it.name}</span>
+                                <div className="flex items-center space-x-1.5 shrink-0">
+                                  <button 
+                                    type="button"
+                                    onClick={() => updateCartQty(it.menuItemId, it.quantity - 1)}
+                                    className="w-5 h-5 bg-slate-100 hover:bg-slate-200 rounded text-xs text-slate-700 font-bold"
+                                  >
+                                    -
+                                  </button>
+                                  <span className="font-bold font-mono">{it.quantity}</span>
+                                  <button 
+                                    type="button"
+                                    onClick={() => updateCartQty(it.menuItemId, it.quantity + 1)}
+                                    className="w-5 h-5 bg-slate-100 hover:bg-slate-200 rounded text-xs text-slate-700 font-bold"
+                                  >
+                                    +
+                                  </button>
+                                  <button 
+                                    type="button"
+                                    onClick={() => removeFromCart(it.menuItemId)}
+                                    className="text-red-500 font-bold ml-1 hover:text-red-700"
+                                  >
+                                    ✕
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    /* Settle Payment Sub-tab */
+                    <div className="space-y-4 animate-fadeIn">
+                      <div>
+                        <h3 className="text-xs font-black text-slate-800 flex items-center gap-1.5">
+                          <span>💳 Confirm Payment & Bill Settle</span>
+                        </h3>
+                        <p className="text-[10px] text-slate-400">Select any active order to view itemized bill & confirm cashier payment.</p>
+                      </div>
+
+                      {/* Select order dropdown */}
+                      <div>
+                        <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Select Order to Pay</label>
+                        <select
+                          value={selectedSettleOrderId}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setSelectedSettleOrderId(val);
+                            const ord = db.restaurantOrders.find(o => o.id === val);
+                            if (ord) {
+                              setSettlePaymentMethod(ord.paymentMethod || 'Cash');
                             }
-                          }
-                        }}
-                        className="w-full px-2.5 py-1.5 bg-white border border-gray-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:border-[#1B4F72] font-semibold"
-                      >
-                        <option value="">-- Start New / Create New Order --</option>
-                        {db.restaurantOrders
-                          .filter(o => o.status !== 'Completed' && o.status !== 'Paid' && o.status !== 'Cancelled')
-                          .map(o => (
-                            <option key={o.id} value={o.id}>
-                              {o.orderNumber || o.id.slice(-4)} - {o.customerName || 'Walk-in'} (${o.total.toFixed(2)}) [{o.status}]
-                            </option>
-                          ))}
-                      </select>
+                          }}
+                          className="w-full px-2.5 py-1.5 bg-white border border-gray-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:border-[#1B4F72] font-semibold"
+                        >
+                          <option value="">-- Choose Order Awaiting Payment --</option>
+                          {db.restaurantOrders
+                            .filter(o => o.status !== 'Completed' && o.status !== 'Paid' && o.status !== 'Cancelled')
+                            .map(o => {
+                              const tblName = o.tableId ? (db.restaurantTables.find(t => t.id === o.tableId)?.tableNumber || 'Table') : '';
+                              const loc = o.orderType === 'Dine In' ? `Table ${tblName}` : o.orderType === 'Room Service' ? `Room ${o.roomNumber}` : 'Take Away';
+                              return (
+                                <option key={o.id} value={o.id}>
+                                  {o.orderNumber || o.id.slice(-4)} ({loc}) - {o.customerName || 'Walk-in'} (${o.total.toFixed(2)})
+                                </option>
+                              );
+                            })}
+                        </select>
+                      </div>
+
+                      {/* If no order selected, show active orders list with clickable cards */}
+                      {!selectedSettleOrderId ? (
+                        <div className="space-y-2">
+                          <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider">Active Orders List</label>
+                          {db.restaurantOrders.filter(o => o.status !== 'Completed' && o.status !== 'Paid' && o.status !== 'Cancelled').length === 0 ? (
+                            <div className="text-center py-8 bg-white border border-dashed rounded-2xl p-4">
+                              <span className="text-2xl block mb-1">🎉</span>
+                              <p className="text-xs font-bold text-emerald-800">All Orders Settled!</p>
+                              <p className="text-[10px] text-slate-400 mt-1">There are no orders awaiting payment at the moment.</p>
+                            </div>
+                          ) : (
+                            <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+                              {db.restaurantOrders
+                                .filter(o => o.status !== 'Completed' && o.status !== 'Paid' && o.status !== 'Cancelled')
+                                .map(o => {
+                                  const tblName = o.tableId ? (db.restaurantTables.find(t => t.id === o.tableId)?.tableNumber || 'Table') : '';
+                                  const loc = o.orderType === 'Dine In' ? `Table ${tblName}` : o.orderType === 'Room Service' ? `Room ${o.roomNumber}` : 'Take Away';
+                                  const waiterObj = db.users.find(u => u.id === o.waiterId) || db.employees.find(e => e.id === o.waiterId);
+                                  const waiterName = waiterObj 
+                                    ? ('name' in waiterObj ? waiterObj.name : `${waiterObj.firstName} ${waiterObj.lastName}`) 
+                                    : (o.waiterId === 'usr_cashier' ? 'Marcus Brody' : o.waiterId);
+                                  return (
+                                    <div
+                                      key={o.id}
+                                      onClick={() => {
+                                        setSelectedSettleOrderId(o.id);
+                                        setSettlePaymentMethod(o.paymentMethod || 'Cash');
+                                      }}
+                                      className="p-3 bg-white border border-gray-150 hover:border-emerald-500 hover:shadow-sm rounded-xl cursor-pointer transition flex items-center justify-between"
+                                    >
+                                      <div className="space-y-0.5 min-w-0">
+                                        <div className="flex items-center gap-1.5">
+                                          <span className="text-xs font-black text-slate-800">{o.orderNumber || o.id.slice(-4)}</span>
+                                          <span className={`text-[8px] font-black uppercase px-1 py-0.2 rounded ${
+                                            o.status === 'Ready' ? 'bg-amber-100 text-amber-700 animate-pulse' : 'bg-slate-100 text-slate-600'
+                                          }`}>
+                                            {o.status}
+                                          </span>
+                                        </div>
+                                        <p className="text-[10px] text-slate-500 font-semibold truncate">
+                                          {loc} • {o.customerName || 'Walk-in'}
+                                        </p>
+                                        <p className="text-[9px] text-slate-400">
+                                          Waiter: {waiterName}
+                                        </p>
+                                      </div>
+                                      <div className="text-right shrink-0">
+                                        <span className="text-xs font-black text-emerald-700 block">${o.total.toFixed(2)}</span>
+                                        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">Settle →</span>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                            </div>
+                          )}
+                        </div>
+                      ) : (() => {
+                        const ord = db.restaurantOrders.find(o => o.id === selectedSettleOrderId);
+                        if (!ord) return null;
+                        const tblName = ord.tableId ? (db.restaurantTables.find(t => t.id === ord.tableId)?.tableNumber || 'Table') : '';
+                        const loc = ord.orderType === 'Dine In' ? `Table ${tblName}` : ord.orderType === 'Room Service' ? `Room ${ord.roomNumber}` : 'Take Away';
+                        const waiterObj = db.users.find(u => u.id === ord.waiterId) || db.employees.find(e => e.id === ord.waiterId);
+                        const waiterName = waiterObj 
+                          ? ('name' in waiterObj ? waiterObj.name : `${waiterObj.firstName} ${waiterObj.lastName}`) 
+                          : (ord.waiterId === 'usr_cashier' ? 'Marcus Brody' : ord.waiterId);
+
+                        return (
+                          <div className="bg-white border border-gray-200 rounded-2xl p-4 space-y-4 shadow-sm animate-fadeIn">
+                            {/* Bill Header */}
+                            <div className="pb-2.5 border-b border-gray-100 flex items-start justify-between">
+                              <div>
+                                <h4 className="text-xs font-black text-slate-800">{ord.orderNumber}</h4>
+                                <p className="text-[9px] text-slate-500">{loc} • Waiter: {waiterName}</p>
+                                <p className="text-[8px] text-slate-400 font-mono">{new Date(ord.createdAt).toLocaleString()}</p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setSelectedSettleOrderId('')}
+                                className="text-[10px] text-rose-600 hover:underline font-bold"
+                              >
+                                Change Order
+                              </button>
+                            </div>
+
+                            {/* Itemized list */}
+                            <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
+                              <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider block">Itemized Bill</span>
+                              <table className="w-full text-xs font-semibold text-slate-700">
+                                <thead>
+                                  <tr className="border-b text-[9px] text-slate-400 uppercase">
+                                    <th className="text-left pb-1">Item</th>
+                                    <th className="text-center pb-1">Qty</th>
+                                    <th className="text-right pb-1">Total</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {ord.items.map((it, idx) => (
+                                    <tr key={idx} className="border-b border-gray-50 py-1 font-mono">
+                                      <td className="py-1 text-slate-800 font-sans">{it.name}</td>
+                                      <td className="py-1 text-center">{it.quantity}</td>
+                                      <td className="py-1 text-right">${(it.price * it.quantity).toFixed(2)}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+
+                            {/* Totals Breakdown */}
+                            <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100 text-[11px] font-bold text-slate-600 space-y-1">
+                              <div className="flex justify-between">
+                                <span>Subtotal:</span>
+                                <span className="font-mono">${ord.subtotal.toFixed(2)}</span>
+                              </div>
+                              {ord.discount > 0 && (
+                                <div className="flex justify-between text-rose-700">
+                                  <span>Discount:</span>
+                                  <span className="font-mono">-${ord.discount.toFixed(2)}</span>
+                                </div>
+                              )}
+                              <div className="flex justify-between">
+                                <span>Tax/VAT ({db.settings.profile.taxRate}%):</span>
+                                <span className="font-mono">${ord.tax.toFixed(2)}</span>
+                              </div>
+                              <div className="flex justify-between text-slate-900 font-black text-xs border-t border-dashed pt-1 mt-1.5">
+                                <span>Grand Total:</span>
+                                <span className="font-mono text-emerald-700">${ord.total.toFixed(2)}</span>
+                              </div>
+                            </div>
+
+                            {/* Settle Payment Selector */}
+                            <div className="space-y-1.5">
+                              <label className="block text-[10px] font-bold text-gray-400 uppercase">Confirm Settle Payment Method</label>
+                              <div className="grid grid-cols-3 gap-1.5">
+                                {(['Cash', 'Card', 'Mobile Money'] as const).map(pm => (
+                                  <button
+                                    key={pm}
+                                    type="button"
+                                    onClick={() => setSettlePaymentMethod(pm)}
+                                    className={`py-1.5 text-[10px] font-bold rounded-lg border text-center transition ${
+                                      settlePaymentMethod === pm
+                                        ? 'bg-emerald-600 text-white border-emerald-600 shadow'
+                                        : 'bg-white text-slate-500 border-gray-200 hover:bg-slate-50'
+                                    }`}
+                                  >
+                                    {pm}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+
+                            {/* Complete and Settle Button */}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                // Update payment method in the order
+                                ord.paymentMethod = settlePaymentMethod;
+                                // Confirm and complete using existing handler
+                                handleUpdateOrderStatus(ord.id, 'Completed');
+                                // Reset
+                                setSelectedSettleOrderId('');
+                                setPrintToast(`Settle Successful: Order ${ord.orderNumber} is marked PAID via ${settlePaymentMethod}.`);
+                              }}
+                              className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs transition cursor-pointer flex justify-center items-center gap-1.5 shadow"
+                            >
+                              <CheckCircle className="h-4 w-4" />
+                              <span>Confirm Payment (${ord.total.toFixed(2)})</span>
+                            </button>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  )}
+                </div>
+
+                {/* Subtotals & Payment and Place Order Button */}
+                {posSideTab === 'create' && (
+                  <div className="border-t border-gray-250 pt-3 space-y-3">
+                    <div className="text-xs space-y-1 text-slate-600 font-semibold">
+                      <div className="flex justify-between">
+                        <span>Subtotal:</span>
+                        <span>${cartSubtotal.toFixed(2)}</span>
+                      </div>
+                      {cartSubtotal > 0 && (
+                        <div className="flex items-center justify-between gap-2.5">
+                          <span className="text-[10px] font-bold uppercase text-slate-400">Discount ($):</span>
+                          <input
+                            type="number"
+                            min={0}
+                            className="w-16 text-right px-1.5 py-0.5 bg-white border rounded text-xs text-slate-800 font-mono font-bold"
+                            value={posDiscount}
+                            onChange={(e) => setPosDiscount(Number(e.target.value))}
+                          />
+                        </div>
+                      )}
+                      <div className="flex justify-between">
+                        <span>VAT ({db.settings.profile.taxRate}%):</span>
+                        <span>${cartTax.toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between text-slate-900 font-black text-sm border-t border-dashed pt-1.5">
+                        <span>Total:</span>
+                        <span>${cartTotal.toFixed(2)}</span>
+                      </div>
                     </div>
 
+                    {/* Payment Method Selector */}
                     <div>
-                      <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Service Type</label>
-                      <div className="grid grid-cols-3 gap-1 bg-gray-200/50 p-1 rounded-xl">
-                        {(['Dine In', 'Take Away', 'Room Service'] as const).map(type => (
+                      <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">Payment Method</label>
+                      <div className="grid grid-cols-3 gap-1.5">
+                        {(['Cash', 'Card', 'Mobile Money'] as const).map(pm => (
                           <button
-                            key={type}
+                            key={pm}
                             type="button"
-                            onClick={() => setOrderType(type)}
-                            className={`py-1 text-[10px] font-bold rounded-lg transition ${
-                              orderType === type ? 'bg-[#1B4F72] text-white shadow' : 'text-slate-600 hover:bg-slate-200'
+                            onClick={() => setPosPaymentMethod(pm)}
+                            className={`py-1 text-[9px] font-bold rounded-lg border text-center ${
+                              posPaymentMethod === pm 
+                                ? 'bg-slate-900 text-white border-slate-900 shadow' 
+                                : 'bg-white text-slate-500 border-gray-200'
                             }`}
                           >
-                            {type}
+                            {pm}
                           </button>
                         ))}
                       </div>
                     </div>
 
-                    {/* Table Select / Room Number Input */}
-                    {orderType === 'Dine In' && (
-                      <div>
-                        <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Seated Table</label>
-                        <select
-                          required
-                          value={selectedTableId}
-                          onChange={(e) => setSelectedTableId(e.target.value)}
-                          className="w-full px-2.5 py-1.5 bg-white border border-gray-200 rounded-xl text-xs text-slate-800 focus:outline-none"
-                        >
-                          <option value="">-- Choose Table --</option>
-                          {db.restaurantTables.map(t => (
-                            <option key={t.id} value={t.id}>{t.tableNumber} ({t.status})</option>
-                          ))}
-                        </select>
-                      </div>
-                    )}
-
-                    {orderType === 'Room Service' && (
-                      <div>
-                        <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Room Number</label>
-                        <input
-                          type="text"
-                          required
-                          placeholder="e.g. 501 (Penthouse)"
-                          className="w-full px-3 py-1.5 bg-white border border-gray-200 rounded-xl text-xs text-slate-800 focus:outline-none font-bold"
-                          value={roomNumber}
-                          onChange={(e) => setRoomNumber(e.target.value)}
-                        />
-                      </div>
-                    )}
-
-                    {/* Optional details */}
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Customer Name</label>
-                        <input
-                          type="text"
-                          placeholder="Optional"
-                          className="w-full px-2 py-1.5 bg-white border border-gray-200 rounded-xl text-xs text-slate-800"
-                          value={customerName}
-                          onChange={(e) => setCustomerName(e.target.value)}
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Guests Count</label>
-                        <input
-                          type="number"
-                          min={1}
-                          max={30}
-                          className="w-full px-2 py-1.5 bg-white border border-gray-200 rounded-xl text-xs font-bold text-slate-800"
-                          value={guestCount}
-                          onChange={(e) => setGuestCount(Number(e.target.value))}
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Serving Waiter / Staff</label>
-                      <select
-                        value={selectedWaiterId}
-                        onChange={(e) => setSelectedWaiterId(e.target.value)}
-                        className="w-full px-2.5 py-1.5 bg-white border border-gray-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:border-[#1B4F72] font-semibold"
+                    <form onSubmit={handlePlaceOrder}>
+                      <button
+                        type="submit"
+                        disabled={cart.length === 0}
+                        className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex justify-center items-center gap-1.5 shadow"
                       >
-                        <option value="">-- Choose Serving Waiter (Auto-select active) --</option>
-                        {waitersList.map(w => (
-                          <option key={w.id} value={w.id}>{w.name}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Special Instructions (KOT)</label>
-                      <textarea
-                        rows={2}
-                        placeholder="e.g. Extra spicy, sauce on side, allergies..."
-                        className="w-full px-3 py-1.5 bg-white border border-gray-200 rounded-xl text-xs text-slate-800 focus:outline-none"
-                        value={specialInstructions}
-                        onChange={(e) => setSpecialInstructions(e.target.value)}
-                      />
-                    </div>
+                        <CheckCircle className="h-4 w-4" />
+                        <span>{editingOrderId ? 'Update Order & Dispatch' : 'Create Order & Dispatch'}</span>
+                      </button>
+                    </form>
                   </div>
-
-                  {/* Display Cart Items list */}
-                  <div className="mt-4 border-t border-gray-200 pt-3 space-y-2">
-                    <span className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider">Order Items list ({cart.length})</span>
-                    {cart.length === 0 ? (
-                      <p className="text-[10px] text-gray-400 italic py-3 text-center">No items added yet.</p>
-                    ) : (
-                      <div className="space-y-1.5 max-h-40 overflow-y-auto">
-                        {cart.map(it => (
-                          <div key={it.menuItemId} className="flex justify-between items-center text-xs bg-white border p-1.5 rounded-xl shadow-sm">
-                            <span className="font-semibold text-slate-700 truncate max-w-[120px]">{it.name}</span>
-                            <div className="flex items-center space-x-1.5 shrink-0">
-                              <button 
-                                type="button"
-                                onClick={() => updateCartQty(it.menuItemId, it.quantity - 1)}
-                                className="w-5 h-5 bg-slate-100 hover:bg-slate-200 rounded text-xs text-slate-700 font-bold"
-                              >
-                                -
-                              </button>
-                              <span className="font-bold font-mono">{it.quantity}</span>
-                              <button 
-                                type="button"
-                                onClick={() => updateCartQty(it.menuItemId, it.quantity + 1)}
-                                className="w-5 h-5 bg-slate-100 hover:bg-slate-200 rounded text-xs text-slate-700 font-bold"
-                              >
-                                +
-                              </button>
-                              <button 
-                                type="button"
-                                onClick={() => removeFromCart(it.menuItemId)}
-                                className="text-red-500 font-bold ml-1 hover:text-red-700"
-                              >
-                                ✕
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Subtotals & Payment and Place Order Button */}
-                <div className="border-t border-gray-250 pt-3 space-y-3">
-                  <div className="text-xs space-y-1 text-slate-600 font-semibold">
-                    <div className="flex justify-between">
-                      <span>Subtotal:</span>
-                      <span>${cartSubtotal.toFixed(2)}</span>
-                    </div>
-                    {cartSubtotal > 0 && (
-                      <div className="flex items-center justify-between gap-2.5">
-                        <span className="text-[10px] font-bold uppercase text-slate-400">Discount ($):</span>
-                        <input
-                          type="number"
-                          min={0}
-                          className="w-16 text-right px-1.5 py-0.5 bg-white border rounded text-xs text-slate-800 font-mono font-bold"
-                          value={posDiscount}
-                          onChange={(e) => setPosDiscount(Number(e.target.value))}
-                        />
-                      </div>
-                    )}
-                    <div className="flex justify-between">
-                      <span>VAT ({db.settings.profile.taxRate}%):</span>
-                      <span>${cartTax.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between text-slate-900 font-black text-sm border-t border-dashed pt-1.5">
-                      <span>Total:</span>
-                      <span>${cartTotal.toFixed(2)}</span>
-                    </div>
-                  </div>
-
-                  {/* Payment Method Selector */}
-                  <div>
-                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">Payment Method</label>
-                    <div className="grid grid-cols-3 gap-1.5">
-                      {(['Cash', 'Card', 'Mobile Money'] as const).map(pm => (
-                        <button
-                          key={pm}
-                          type="button"
-                          onClick={() => setPosPaymentMethod(pm)}
-                          className={`py-1 text-[9px] font-bold rounded-lg border text-center ${
-                            posPaymentMethod === pm 
-                              ? 'bg-slate-900 text-white border-slate-900 shadow' 
-                              : 'bg-white text-slate-500 border-gray-200'
-                          }`}
-                        >
-                          {pm}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <form onSubmit={handlePlaceOrder}>
-                    <button
-                      type="submit"
-                      disabled={cart.length === 0}
-                      className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex justify-center items-center gap-1.5 shadow"
-                    >
-                      <CheckCircle className="h-4 w-4" />
-                      <span>{editingOrderId ? 'Update Order & Dispatch' : 'Create Order & Dispatch'}</span>
-                    </button>
-                  </form>
-                </div>
+                )}
               </div>
             </div>
           )}
