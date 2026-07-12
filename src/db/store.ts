@@ -667,6 +667,17 @@ class HotelStore {
     this.saveToStorage();
   }
 
+  public resetAdminPassword(newPassword: string): boolean {
+    const adminUser = this.db.users.find(u => u.id === 'usr_admin') || this.db.users.find(u => u.role === 'Super Admin');
+    if (adminUser) {
+      adminUser.passwordHash = newPassword;
+      this.addAuditLog('Reset Password', 'Settings', `Reset password of Super Admin ${adminUser.username} via emergency recovery`);
+      this.saveToStorage();
+      return true;
+    }
+    return false;
+  }
+
   public deleteUser(id: string): { success: boolean; error?: string } {
     if (this.activeUser?.id === id) {
       return { success: false, error: 'Cannot delete the currently logged in user.' };

@@ -52,6 +52,14 @@ export default function App() {
   const [loginPass, setLoginPass] = useState('');
   const [loginError, setLoginError] = useState('');
 
+  // Forgot Password States
+  const [isForgotPassword, setIsForgotPassword] = useState(false);
+  const [resetUsername, setResetUsername] = useState('');
+  const [resetCode, setResetCode] = useState('');
+  const [newAdminPassword, setNewAdminPassword] = useState('');
+  const [resetSuccess, setResetSuccess] = useState('');
+  const [resetError, setResetError] = useState('');
+
   // Subscribe to central state changes
   useEffect(() => {
     const unsubscribe = store.subscribe(() => {
@@ -172,6 +180,33 @@ export default function App() {
     }
   };
 
+  const handlePasswordResetSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resetUsername || !resetCode || !newAdminPassword) {
+      setResetError('All fields are required.');
+      setResetSuccess('');
+      return;
+    }
+
+    if (resetUsername.trim().toLowerCase() !== 'yuskar' || resetCode.trim() !== 'yuskar123') {
+      setResetError('Invalid reset username or reset code.');
+      setResetSuccess('');
+      return;
+    }
+
+    const success = store.resetAdminPassword(newAdminPassword);
+    if (success) {
+      setResetSuccess('Success! Admin password has been successfully reset. You can now use your new password.');
+      setResetError('');
+      setResetUsername('');
+      setResetCode('');
+      setNewAdminPassword('');
+    } else {
+      setResetError('Failed to locate Admin account to reset password.');
+      setResetSuccess('');
+    }
+  };
+
   const handleQuickLogin = (username: string) => {
     // Standard password across sandbox simulation is username123 or just common password
     // Looking up user's stored password
@@ -229,46 +264,138 @@ export default function App() {
           {/* Form / Direct access */}
           <div className="md:w-7/12 p-8 flex flex-col justify-center">
             <div>
-              <h2 className="text-2xl font-bold font-editorial text-gray-800 dark:text-white mb-1">Staff Secure Terminal</h2>
-              <p className="text-xs text-gray-400 dark:text-gray-300">Enter secure operator credentials to authorize your console session.</p>
-
-              <form onSubmit={handleLoginSubmit} className="space-y-4 mt-6">
+              {isForgotPassword ? (
                 <div>
-                  <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Username</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. admin, receptionist"
-                    className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none text-gray-800 dark:text-white font-mono"
-                    value={loginUser}
-                    onChange={(e) => setLoginUser(e.target.value)}
-                  />
-                </div>
+                  <h2 className="text-2xl font-bold font-editorial text-gray-800 dark:text-white mb-1">Reset Admin Password</h2>
+                  <p className="text-xs text-gray-400 dark:text-gray-300">Enter emergency credentials to reset the Super Admin password.</p>
 
+                  <form onSubmit={handlePasswordResetSubmit} className="space-y-4 mt-6">
+                    <div>
+                      <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Reset Username</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. yuskar"
+                        className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none text-gray-800 dark:text-white font-mono font-bold"
+                        value={resetUsername}
+                        onChange={(e) => setResetUsername(e.target.value)}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Reset Code</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. yuskar123"
+                        className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none text-gray-800 dark:text-white font-mono font-bold"
+                        value={resetCode}
+                        onChange={(e) => setResetCode(e.target.value)}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">New Admin Password</label>
+                      <input
+                        type="password"
+                        required
+                        placeholder="••••••••"
+                        className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none text-gray-800 dark:text-white font-mono"
+                        value={newAdminPassword}
+                        onChange={(e) => setNewAdminPassword(e.target.value)}
+                      />
+                    </div>
+
+                    {resetError && (
+                      <p className="text-xs text-red-500 font-bold bg-red-50 dark:bg-red-950/20 dark:text-red-400 p-2 rounded border border-red-100 dark:border-red-900/50">{resetError}</p>
+                    )}
+
+                    {resetSuccess && (
+                      <p className="text-xs text-emerald-600 font-bold bg-emerald-50 dark:bg-emerald-950/20 dark:text-emerald-400 p-2 rounded border border-emerald-100 dark:border-emerald-900/50">{resetSuccess}</p>
+                    )}
+
+                    <div className="flex space-x-3 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsForgotPassword(false);
+                          setResetUsername('');
+                          setResetCode('');
+                          setNewAdminPassword('');
+                          setResetSuccess('');
+                          setResetError('');
+                        }}
+                        className="flex-1 py-2 bg-gray-150 hover:bg-gray-200 dark:bg-gray-750 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 font-bold rounded-xl text-xs transition cursor-pointer text-center border border-gray-250 dark:border-gray-600"
+                      >
+                        Back to Login
+                      </button>
+                      <button
+                        type="submit"
+                        className="flex-1 py-2 bg-[#E67E22] hover:bg-[#D35400] text-white font-bold rounded-xl text-xs transition cursor-pointer flex items-center justify-center space-x-2 shadow-sm"
+                      >
+                        <RefreshCw className="h-3.5 w-3.5 animate-spin-slow" />
+                        <span>Reset Password</span>
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              ) : (
                 <div>
-                  <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Password</label>
-                  <input
-                    type="password"
-                    required
-                    placeholder="••••••••"
-                    className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none text-gray-800 dark:text-white font-mono"
-                    value={loginPass}
-                    onChange={(e) => setLoginPass(e.target.value)}
-                  />
+                  <h2 className="text-2xl font-bold font-editorial text-gray-800 dark:text-white mb-1">Staff Secure Terminal</h2>
+                  <p className="text-xs text-gray-400 dark:text-gray-300">Enter secure operator credentials to authorize your console session.</p>
+
+                  <form onSubmit={handleLoginSubmit} className="space-y-4 mt-6">
+                    <div>
+                      <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Username</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. admin, receptionist"
+                        className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none text-gray-800 dark:text-white font-mono"
+                        value={loginUser}
+                        onChange={(e) => setLoginUser(e.target.value)}
+                      />
+                    </div>
+
+                    <div>
+                      <div className="flex justify-between items-center mb-1">
+                        <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider">Password</label>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsForgotPassword(true);
+                            setResetSuccess('');
+                            setResetError('');
+                          }}
+                          className="text-[10px] font-bold text-[#E67E22] hover:underline cursor-pointer bg-transparent border-0 outline-none p-0"
+                        >
+                          Forgot Password?
+                        </button>
+                      </div>
+                      <input
+                        type="password"
+                        required
+                        placeholder="••••••••"
+                        className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none text-gray-800 dark:text-white font-mono"
+                        value={loginPass}
+                        onChange={(e) => setLoginPass(e.target.value)}
+                      />
+                    </div>
+
+                    {loginError && (
+                      <p className="text-xs text-red-500 font-bold bg-red-50 dark:bg-red-950/20 dark:text-red-400 p-2 rounded border border-red-100 dark:border-red-900/50">{loginError}</p>
+                    )}
+
+                    <button
+                      type="submit"
+                      className="w-full py-2.5 bg-[#1B4F72] hover:bg-[#153E5B] text-white font-bold rounded-xl text-xs transition cursor-pointer flex items-center justify-center space-x-2"
+                    >
+                      <Lock className="h-3.5 w-3.5" />
+                      <span>Authorize Connection</span>
+                    </button>
+                  </form>
                 </div>
-
-                {loginError && (
-                  <p className="text-xs text-red-500 font-bold bg-red-50 dark:bg-red-950/20 dark:text-red-400 p-2 rounded border border-red-100 dark:border-red-900/50">{loginError}</p>
-                )}
-
-                <button
-                  type="submit"
-                  className="w-full py-2.5 bg-[#1B4F72] hover:bg-[#153E5B] text-white font-bold rounded-xl text-xs transition cursor-pointer flex items-center justify-center space-x-2"
-                >
-                  <Lock className="h-3.5 w-3.5" />
-                  <span>Authorize Connection</span>
-                </button>
-              </form>
+              )}
 
               {/* Business Profile Selection & Creation */}
               <div className="mt-6 pt-5 border-t border-gray-100 dark:border-gray-700 space-y-4">
