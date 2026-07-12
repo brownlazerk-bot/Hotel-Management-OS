@@ -180,6 +180,19 @@ export default function HRFinance() {
     }
   };
 
+  const handleUnlinkUser = (user: User) => {
+    if (confirm(`Are you sure you want to unlink operator account @${user.username} from this employee profile?`)) {
+      const updatedUser = { ...user };
+      delete updatedUser.employeeId;
+      store.saveUser(updatedUser);
+    }
+  };
+
+  const handleGoToAndEditUser = (user: User) => {
+    setActiveTab('users');
+    handleEditUser(user);
+  };
+
   const handleToggleUserActive = (user: User) => {
     const updatedUser = { ...user, isActive: !user.isActive };
     store.saveUser(updatedUser);
@@ -576,19 +589,69 @@ export default function HRFinance() {
 
                         <div className="pt-2 border-t border-gray-200/50 flex flex-wrap items-center justify-between gap-1.5 mt-1.5">
                           {linkedUser ? (
-                            <span className="inline-flex items-center space-x-1 bg-emerald-50 text-emerald-700 border border-emerald-100 px-2 py-0.5 rounded text-[10px] font-bold">
-                              <UserCheck className="h-3 w-3" />
-                              <span>Console: @{linkedUser.username}</span>
-                            </span>
+                            <div className="flex items-center space-x-1.5 w-full justify-between">
+                              <span className="inline-flex items-center space-x-1 bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-900/30 px-2 py-0.5 rounded text-[10px] font-bold">
+                                <UserCheck className="h-3 w-3" />
+                                <span>Console: @{linkedUser.username}</span>
+                              </span>
+                              <div className="flex items-center space-x-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => handleGoToAndEditUser(linkedUser)}
+                                  className="px-1.5 py-0.5 bg-blue-50 dark:bg-blue-950/20 hover:bg-blue-100 dark:hover:bg-blue-900/30 border border-blue-200 dark:border-blue-900/30 text-blue-700 dark:text-blue-400 rounded text-[9px] font-bold transition cursor-pointer"
+                                  title="Edit login credentials and settings"
+                                >
+                                  View Account
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleUnlinkUser(linkedUser)}
+                                  className="px-1.5 py-0.5 bg-red-50 dark:bg-red-950/20 hover:bg-red-100 dark:hover:bg-red-900/30 border border-red-250 dark:border-red-900/30 text-red-600 dark:text-red-400 rounded text-[9px] font-bold transition cursor-pointer"
+                                  title="Unlink from this employee profile"
+                                >
+                                  Unlink
+                                </button>
+                              </div>
+                            </div>
                           ) : (
-                            <button
-                              type="button"
-                              onClick={() => handleCreateAccountFromEmployee(emp)}
-                              className="px-2 py-1 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-700 rounded text-[10px] font-bold transition duration-150 inline-flex items-center space-x-1 cursor-pointer"
-                            >
-                              <Lock className="h-3 w-3" />
-                              <span>+ Create Account</span>
-                            </button>
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 w-full">
+                              <button
+                                type="button"
+                                onClick={() => handleCreateAccountFromEmployee(emp)}
+                                className="px-2 py-1 bg-amber-50 dark:bg-amber-950/20 hover:bg-amber-100 dark:hover:bg-amber-900/30 border border-amber-200 dark:border-amber-900/40 text-amber-700 dark:text-amber-400 rounded text-[10px] font-bold transition duration-150 inline-flex items-center space-x-1 cursor-pointer"
+                              >
+                                <Lock className="h-3 w-3" />
+                                <span>+ Create Account</span>
+                              </button>
+
+                              {/* Dropdown to select existing operator account instead of creating a terminal user */}
+                              {db.users.filter(u => !u.employeeId).length > 0 && (
+                                <select
+                                  className="px-2 py-1 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-700 text-[10px] font-semibold text-gray-600 dark:text-gray-300 rounded cursor-pointer transition max-w-[130px] focus:outline-none"
+                                  value=""
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    if (val) {
+                                      const targetUser = db.users.find(u => u.id === val);
+                                      if (targetUser) {
+                                        store.saveUser({
+                                          ...targetUser,
+                                          employeeId: emp.id
+                                        });
+                                        alert(`Linked employee ${emp.firstName} ${emp.lastName} to operator @${targetUser.username} successfully!`);
+                                      }
+                                    }
+                                  }}
+                                >
+                                  <option value="">🔗 Link Existing</option>
+                                  {db.users.filter(u => !u.employeeId).map(u => (
+                                    <option key={u.id} value={u.id}>
+                                      @{u.username} ({u.role})
+                                    </option>
+                                  ))}
+                                </select>
+                              )}
+                            </div>
                           )}
                         </div>
 
