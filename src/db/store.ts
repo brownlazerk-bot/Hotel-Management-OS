@@ -164,6 +164,48 @@ class HotelStore {
   }
 
   private loadFromStorage(): HotelOSDatabase {
+    let isNewRequest = false;
+    if (typeof window !== 'undefined' && window.location) {
+      const params = new URLSearchParams(window.location.search);
+      if (
+        params.get('new') === 'true' ||
+        params.get('hotel') === 'new' ||
+        params.get('mode') === 'new' ||
+        params.get('api') === 'new' ||
+        params.get('create') === 'true' ||
+        params.get('tenant') === 'true'
+      ) {
+        isNewRequest = true;
+        // Clean up URL parameters so they do not keep resetting on every page refresh
+        try {
+          const url = new URL(window.location.href);
+          url.searchParams.delete('new');
+          url.searchParams.delete('hotel');
+          url.searchParams.delete('mode');
+          url.searchParams.delete('api');
+          url.searchParams.delete('create');
+          url.searchParams.delete('tenant');
+          window.history.replaceState({}, '', url.pathname + url.search);
+        } catch (e) {
+          console.error('Failed to clean URL parameters', e);
+        }
+      }
+    }
+
+    if (isNewRequest) {
+      // Clear current active session and set up a brand new, clean client state
+      sessionStorage.removeItem('hotel_os_session');
+      const cleanDb: HotelOSDatabase = {
+        ...INITIAL_STATE,
+        consoleMappings: this.getDefaultConsoleMappings(),
+        isInitialized: false,
+        isIsolatedClient: true
+      };
+      this.db = cleanDb;
+      localStorage.setItem('hotel_os_database', JSON.stringify(cleanDb));
+      return cleanDb;
+    }
+
     try {
       const stored = localStorage.getItem('hotel_os_database');
       if (stored) {
@@ -178,10 +220,20 @@ class HotelStore {
     } catch (e) {
       console.error('Failed to load database from localStorage, initializing fresh', e);
     }
-    return { 
+    
+    // First run! Auto-seed the sandbox, but keep the user logged out so they see the login page first.
+    this.db = { 
       ...INITIAL_STATE,
       consoleMappings: this.getDefaultConsoleMappings()
     };
+    try {
+      this.seedSandbox();
+      this.activeUser = null;
+      sessionStorage.removeItem('hotel_os_session');
+    } catch (err) {
+      console.error('Error auto-seeding first-time database', err);
+    }
+    return this.db;
   }
 
   private saveToStorage(): void {
@@ -228,6 +280,20 @@ class HotelStore {
   // Get all saved business/hotel profiles
   public getSavedProfiles(): { id: string; name: string; slogan: string; active: boolean }[] {
     try {
+      // If we are in isolated mode, never show other profiles
+      if (this.db && this.db.isIsolatedClient) {
+        if (this.db.isInitialized && this.db.settings?.profile?.name) {
+          const currentId = 'prof_' + this.db.settings.profile.name.replace(/\s+/g, '_').toLowerCase();
+          return [{
+            id: currentId,
+            name: this.db.settings.profile.name,
+            slogan: this.db.settings.profile.slogan || '',
+            active: true
+          }];
+        }
+        return [];
+      }
+
       const indexStr = localStorage.getItem('hotel_os_profiles_index');
       let index: { id: string; name: string; slogan: string }[] = [];
       if (indexStr) {
@@ -305,6 +371,10 @@ class HotelStore {
   // Switch to a different saved business/hotel profile
   public switchBusiness(profileId: string): { success: boolean; error?: string } {
     try {
+      if (this.db && this.db.isIsolatedClient) {
+        return { success: false, error: 'Operation not permitted in secure isolated client mode' };
+      }
+
       // 1. Save current active db to its profile key (if initialized)
       if (this.db && this.db.isInitialized && this.db.settings?.profile?.name) {
         const currentId = 'prof_' + this.db.settings.profile.name.replace(/\s+/g, '_').toLowerCase();
@@ -345,6 +415,9 @@ class HotelStore {
   // Delete a business profile
   public deleteBusiness(profileId: string): void {
     try {
+      if (this.db && this.db.isIsolatedClient) {
+        return;
+      }
       // Remove database storage
       localStorage.removeItem('hotel_os_db_' + profileId);
       

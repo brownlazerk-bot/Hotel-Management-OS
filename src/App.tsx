@@ -397,99 +397,108 @@ export default function App() {
                 </div>
               )}
 
+              {db.isIsolatedClient && (
+                <div className="mt-6 pt-4 border-t border-gray-100 dark:border-gray-700 flex items-center justify-center space-x-1 text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
+                  <Shield className="h-3 w-3 text-emerald-500" />
+                  <span>Secure Private Client Node • {db.settings?.profile?.name || 'Isolated Console'}</span>
+                </div>
+              )}
+
               {/* Business Profile Selection & Creation */}
-              <div className="mt-6 pt-5 border-t border-gray-100 dark:border-gray-700 space-y-4">
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-bold text-gray-400 dark:text-gray-300 uppercase tracking-wider">
-                    Business Profile Management
-                  </span>
-                  <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold flex items-center space-x-1">
-                    <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse inline-block"></span>
-                    <span>Active: {db.settings.profile.name}</span>
-                  </span>
-                </div>
+              {!db.isIsolatedClient && (
+                <div className="mt-6 pt-5 border-t border-gray-100 dark:border-gray-700 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold text-gray-400 dark:text-gray-300 uppercase tracking-wider">
+                      Business Profile Management
+                    </span>
+                    <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold flex items-center space-x-1">
+                      <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse inline-block"></span>
+                      <span>Active: {db.settings.profile.name}</span>
+                    </span>
+                  </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {/* Select Existing Business dropdown */}
-                  <div className="space-y-1">
-                    <label className="block text-[9px] font-bold text-gray-400 uppercase tracking-wider">Switch to Existing</label>
-                    <select
-                      value={profiles.find(p => p.active)?.id || ''}
-                      onChange={(e) => {
-                        const targetId = e.target.value;
-                        if (targetId) {
-                          const res = store.switchBusiness(targetId);
-                          if (res.success) {
-                            setLoginError('');
-                            setLoginUser('');
-                            setLoginPass('');
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {/* Select Existing Business dropdown */}
+                    <div className="space-y-1">
+                      <label className="block text-[9px] font-bold text-gray-400 uppercase tracking-wider">Switch to Existing</label>
+                      <select
+                        value={profiles.find(p => p.active)?.id || ''}
+                        onChange={(e) => {
+                          const targetId = e.target.value;
+                          if (targetId) {
+                            const res = store.switchBusiness(targetId);
+                            if (res.success) {
+                              setLoginError('');
+                              setLoginUser('');
+                              setLoginPass('');
+                            }
                           }
-                        }
-                      }}
-                      className="w-full px-2.5 py-1.5 bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 border border-gray-200 dark:border-gray-600 rounded-lg text-xs font-semibold text-gray-700 dark:text-gray-200 cursor-pointer focus:outline-none transition"
-                    >
-                      {profiles.map(p => (
-                        <option key={p.id} value={p.id}>
-                          🏨 {p.name} {p.active ? '(Active)' : ''}
-                        </option>
-                      ))}
-                    </select>
+                        }}
+                        className="w-full px-2.5 py-1.5 bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 border border-gray-200 dark:border-gray-600 rounded-lg text-xs font-semibold text-gray-700 dark:text-gray-200 cursor-pointer focus:outline-none transition"
+                      >
+                        {profiles.map(p => (
+                          <option key={p.id} value={p.id}>
+                            🏨 {p.name} {p.active ? '(Active)' : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Register New Business button */}
+                    <div className="flex flex-col justify-end">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (confirm('Do you want to launch the Setup Wizard to register and configure a brand new business/hotel? Your current business data remains safely saved and you can switch back at any time.')) {
+                            store.prepareAddNewBusiness();
+                          }
+                        }}
+                        className="w-full px-3 py-1.5 bg-amber-50 dark:bg-amber-950/20 hover:bg-amber-100 dark:hover:bg-amber-900/30 border border-amber-200 dark:border-amber-900/50 text-amber-700 dark:text-amber-400 font-bold rounded-lg text-xs cursor-pointer transition text-center flex items-center justify-center space-x-1"
+                      >
+                        <Building className="h-3.5 w-3.5" />
+                        <span>+ Register New Business</span>
+                      </button>
+                    </div>
                   </div>
 
-                  {/* Register New Business button */}
-                  <div className="flex flex-col justify-end">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (confirm('Do you want to launch the Setup Wizard to register and configure a brand new business/hotel? Your current business data remains safely saved and you can switch back at any time.')) {
-                          store.prepareAddNewBusiness();
-                        }
-                      }}
-                      className="w-full px-3 py-1.5 bg-amber-50 dark:bg-amber-950/20 hover:bg-amber-100 dark:hover:bg-amber-900/30 border border-amber-200 dark:border-amber-900/50 text-amber-700 dark:text-amber-400 font-bold rounded-lg text-xs cursor-pointer transition text-center flex items-center justify-center space-x-1"
-                    >
-                      <Building className="h-3.5 w-3.5" />
-                      <span>+ Register New Business</span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* Show list of registered business profiles for quick access if multiple */}
-                {profiles.length > 1 && (
-                  <div className="bg-gray-50 dark:bg-gray-900/40 p-2.5 rounded-xl border border-gray-100 dark:border-gray-800 space-y-1.5">
-                    <span className="block text-[8px] text-gray-400 dark:text-gray-500 font-bold uppercase tracking-wider">Quick Switch Between Saved Businesses:</span>
-                    <div className="flex flex-wrap gap-1.5">
-                      {profiles.map(p => (
-                        <div key={p.id} className="inline-flex items-center bg-white dark:bg-gray-800 px-2 py-1 rounded-lg border border-gray-150 dark:border-gray-700 text-[10px] font-semibold shadow-xs space-x-1">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              store.switchBusiness(p.id);
-                            }}
-                            className={`hover:text-blue-500 transition cursor-pointer truncate max-w-[130px] ${p.active ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-gray-600 dark:text-gray-300'}`}
-                            title={`Switch to ${p.name}`}
-                          >
-                            🏨 {p.name}
-                          </button>
-                          {!p.active && (
+                  {/* Show list of registered business profiles for quick access if multiple */}
+                  {profiles.length > 1 && (
+                    <div className="bg-gray-50 dark:bg-gray-900/40 p-2.5 rounded-xl border border-gray-100 dark:border-gray-800 space-y-1.5">
+                      <span className="block text-[8px] text-gray-400 dark:text-gray-500 font-bold uppercase tracking-wider">Quick Switch Between Saved Businesses:</span>
+                      <div className="flex flex-wrap gap-1.5">
+                        {profiles.map(p => (
+                          <div key={p.id} className="inline-flex items-center bg-white dark:bg-gray-800 px-2 py-1 rounded-lg border border-gray-150 dark:border-gray-700 text-[10px] font-semibold shadow-xs space-x-1">
                             <button
                               type="button"
                               onClick={() => {
-                                if (confirm(`Are you sure you want to completely delete the business profile "${p.name}"? This will delete all its local records!`)) {
-                                  store.deleteBusiness(p.id);
-                                }
+                                store.switchBusiness(p.id);
                               }}
-                              className="text-red-400 hover:text-red-600 font-black px-0.5 ml-1 transition cursor-pointer"
-                              title="Delete profile"
+                              className={`hover:text-blue-500 transition cursor-pointer truncate max-w-[130px] ${p.active ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-gray-600 dark:text-gray-300'}`}
+                              title={`Switch to ${p.name}`}
                             >
-                              ×
+                              🏨 {p.name}
                             </button>
-                          )}
-                        </div>
-                      ))}
+                            {!p.active && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (confirm(`Are you sure you want to completely delete the business profile "${p.name}"? This will delete all its local records!`)) {
+                                    store.deleteBusiness(p.id);
+                                  }
+                                }}
+                                className="text-red-400 hover:text-red-600 font-black px-0.5 ml-1 transition cursor-pointer"
+                                  title="Delete profile"
+                              >
+                                ×
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                )}
-              </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 
@@ -629,59 +638,65 @@ export default function App() {
 
           {/* Sidebar bottom business switching panel */}
           <div className="mt-4 pt-4 border-t border-white/10 space-y-3 shrink-0">
-            <div>
-              <span className="text-[9px] font-bold text-white/40 uppercase tracking-widest pl-1 block mb-1.5">Switch Business / Hotel</span>
-              <div className="space-y-1 max-h-36 overflow-y-auto pr-1">
-                {profiles.map(p => (
-                  <div key={p.id} className="group flex items-center justify-between rounded-lg px-2 py-1 text-xs transition bg-white/5 hover:bg-white/10">
-                    <button
-                      type="button"
-                      disabled={p.active}
-                      onClick={() => {
-                        if (confirm(`Switch console environment to "${p.name}"?`)) {
-                          store.switchBusiness(p.id);
-                        }
-                      }}
-                      className={`truncate text-left flex-grow font-semibold flex items-center space-x-1.5 transition ${p.active ? 'text-white font-bold' : 'text-white/60 hover:text-white cursor-pointer'}`}
-                      title={p.name}
-                    >
-                      <span className="text-xs">🏨</span>
-                      <span className="truncate">{p.name}</span>
-                    </button>
-                    {p.active ? (
-                      <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full shrink-0" />
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (confirm(`Are you sure you want to completely delete business "${p.name}"?`)) {
-                            store.deleteBusiness(p.id);
-                          }
-                        }}
-                        className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-300 text-xs font-black px-1 cursor-pointer"
-                        title="Delete profile"
-                      >
-                        ×
-                      </button>
-                    )}
+            {!db.isIsolatedClient && (
+              <>
+                <div>
+                  <span className="text-[9px] font-bold text-white/40 uppercase tracking-widest pl-1 block mb-1.5">Switch Business / Hotel</span>
+                  <div className="space-y-1 max-h-36 overflow-y-auto pr-1">
+                    {profiles.map(p => (
+                      <div key={p.id} className="group flex items-center justify-between rounded-lg px-2 py-1 text-xs transition bg-white/5 hover:bg-white/10">
+                        <button
+                          type="button"
+                          disabled={p.active}
+                          onClick={() => {
+                            if (confirm(`Switch console environment to "${p.name}"?`)) {
+                              store.switchBusiness(p.id);
+                            }
+                          }}
+                          className={`truncate text-left flex-grow font-semibold flex items-center space-x-1.5 transition ${p.active ? 'text-white font-bold' : 'text-white/60 hover:text-white cursor-pointer'}`}
+                          title={p.name}
+                        >
+                          <span className="text-xs">🏨</span>
+                          <span className="truncate">{p.name}</span>
+                        </button>
+                        {p.active ? (
+                          <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full shrink-0" />
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (confirm(`Are you sure you want to completely delete business "${p.name}"?`)) {
+                                store.deleteBusiness(p.id);
+                              }
+                            }}
+                            className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-300 text-xs font-black px-1 cursor-pointer"
+                            title="Delete profile"
+                          >
+                            ×
+                          </button>
+                        )}
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-            </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (confirm('Transition to the Setup Wizard to register a new business or hotel? Your current records are saved.')) {
+                        store.prepareAddNewBusiness();
+                      }
+                    }}
+                    className="w-full py-1.5 bg-[#E67E22] hover:bg-[#D35400] text-white font-bold rounded-lg text-[10px] transition cursor-pointer text-center block"
+                  >
+                    + Add Other Business
+                  </button>
+                </div>
+              </>
+            )}
 
             <div className="space-y-1.5">
-              <button
-                type="button"
-                onClick={() => {
-                  if (confirm('Transition to the Setup Wizard to register a new business or hotel? Your current records are saved.')) {
-                    store.prepareAddNewBusiness();
-                  }
-                }}
-                className="w-full py-1.5 bg-[#E67E22] hover:bg-[#D35400] text-white font-bold rounded-lg text-[10px] transition cursor-pointer text-center block"
-              >
-                + Add Other Business
-              </button>
-
               <button
                 type="button"
                 onClick={handleLogout}
@@ -731,62 +746,68 @@ export default function App() {
               </div>
 
               <div className="pt-4 border-t border-gray-100 dark:border-gray-800 text-xs space-y-4">
-                <div>
-                  <span className="block text-[9px] font-bold text-gray-400 uppercase tracking-widest mb-2">Switch Business / Hotel</span>
-                  <div className="space-y-1 max-h-32 overflow-y-auto pr-1">
-                    {profiles.map(p => (
-                      <div key={p.id} className="flex items-center justify-between rounded-lg px-2.5 py-1.5 bg-gray-50 dark:bg-gray-800 text-xs font-semibold">
-                        <button
-                          type="button"
-                          disabled={p.active}
-                          onClick={() => {
-                            if (confirm(`Switch console to "${p.name}"?`)) {
-                              store.switchBusiness(p.id);
-                              setMobileMenuOpen(false);
-                            }
-                          }}
-                          className={`truncate text-left flex-grow transition ${
-                            p.active
-                              ? 'text-emerald-600 dark:text-emerald-400 font-bold'
-                              : 'text-gray-600 dark:text-gray-300'
-                          }`}
-                        >
-                          🏨 {p.name}
-                        </button>
-                        {p.active ? (
-                          <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full" />
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (confirm(`Completely delete business "${p.name}"?`)) {
-                                store.deleteBusiness(p.id);
-                              }
-                            }}
-                            className="text-red-500 hover:text-red-700 text-xs font-black px-1"
-                          >
-                            ×
-                          </button>
-                        )}
+                {!db.isIsolatedClient && (
+                  <>
+                    <div>
+                      <span className="block text-[9px] font-bold text-gray-400 uppercase tracking-widest mb-2">Switch Business / Hotel</span>
+                      <div className="space-y-1 max-h-32 overflow-y-auto pr-1">
+                        {profiles.map(p => (
+                          <div key={p.id} className="flex items-center justify-between rounded-lg px-2.5 py-1.5 bg-gray-50 dark:bg-gray-800 text-xs font-semibold">
+                            <button
+                              type="button"
+                              disabled={p.active}
+                              onClick={() => {
+                                if (confirm(`Switch console to "${p.name}"?`)) {
+                                  store.switchBusiness(p.id);
+                                  setMobileMenuOpen(false);
+                                }
+                              }}
+                              className={`truncate text-left flex-grow transition ${
+                                p.active
+                                  ? 'text-emerald-600 dark:text-emerald-400 font-bold'
+                                  : 'text-gray-600 dark:text-gray-300'
+                              }`}
+                            >
+                              🏨 {p.name}
+                            </button>
+                            {p.active ? (
+                              <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full" />
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (confirm(`Completely delete business "${p.name}"?`)) {
+                                    store.deleteBusiness(p.id);
+                                  }
+                                }}
+                                className="text-red-500 hover:text-red-700 text-xs font-black px-1"
+                              >
+                                ×
+                              </button>
+                            )}
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
-                </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (confirm('Create and register another business or hotel? Current data is saved.')) {
+                            store.prepareAddNewBusiness();
+                            setMobileMenuOpen(false);
+                          }
+                        }}
+                        className="w-full flex items-center justify-center space-x-1.5 py-2 bg-[#E67E22] hover:bg-[#D35400] text-white text-xs font-bold rounded-xl transition cursor-pointer"
+                      >
+                        <span>+ Add Other Business</span>
+                      </button>
+                    </div>
+                  </>
+                )}
 
                 <div className="space-y-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (confirm('Create and register another business or hotel? Current data is saved.')) {
-                        store.prepareAddNewBusiness();
-                        setMobileMenuOpen(false);
-                      }
-                    }}
-                    className="w-full flex items-center justify-center space-x-1.5 py-2 bg-[#E67E22] hover:bg-[#D35400] text-white text-xs font-bold rounded-xl transition cursor-pointer"
-                  >
-                    <span>+ Add Other Business</span>
-                  </button>
-
                   <button
                     type="button"
                     onClick={() => {

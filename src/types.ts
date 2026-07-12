@@ -514,6 +514,7 @@ export interface HotelOSDatabase {
   shiftReports: DailyShiftReport[];
   consoleMappings?: ConsoleMapping[];
   isInitialized: boolean;
+  isIsolatedClient?: boolean;
 }
 
 export interface ConsoleMapping {

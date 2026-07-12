@@ -125,20 +125,22 @@ export default function SetupWizard({ onSetupComplete }: SetupWizardProps) {
             </p>
           </div>
 
-          <div className="mt-8 pt-6 border-t border-white/10 space-y-3">
-            <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-300">Fast Sandbox Evaluation</h2>
-            <p className="text-xs text-gray-300 leading-relaxed">
-              Want to review the fully completed, connected platform with pre-loaded luxury resort simulator data instantly?
-            </p>
-            <button
-              onClick={handleSeedSandbox}
-              disabled={seedLoading}
-              className="w-full mt-2 inline-flex items-center justify-center px-4 py-2.5 bg-[#E67E22] hover:bg-[#D35400] text-white font-medium rounded-lg text-xs transition duration-200 shadow-md shadow-[#E67E22]/10 active:scale-[0.98] cursor-pointer"
-            >
-              <Sparkles className="h-3.5 w-3.5 mr-1.5" />
-              {seedLoading ? 'Generating Sandbox...' : 'Seed Sandbox Simulator'}
-            </button>
-          </div>
+          {!store.getDb().isIsolatedClient && (
+            <div className="mt-8 pt-6 border-t border-white/10 space-y-3">
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-300">Fast Sandbox Evaluation</h2>
+              <p className="text-xs text-gray-300 leading-relaxed">
+                Want to review the fully completed, connected platform with pre-loaded luxury resort simulator data instantly?
+              </p>
+              <button
+                onClick={handleSeedSandbox}
+                disabled={seedLoading}
+                className="w-full mt-2 inline-flex items-center justify-center px-4 py-2.5 bg-[#E67E22] hover:bg-[#D35400] text-white font-medium rounded-lg text-xs transition duration-200 shadow-md shadow-[#E67E22]/10 active:scale-[0.98] cursor-pointer"
+              >
+                <Sparkles className="h-3.5 w-3.5 mr-1.5" />
+                {seedLoading ? 'Generating Sandbox...' : 'Seed Sandbox Simulator'}
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Right Form Wizard Panel */}
