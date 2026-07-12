@@ -480,6 +480,9 @@ export interface DailyShiftReport {
   ceoApprovedAt?: string;
   isDiscrepancyFound: boolean;
   notes?: string;
+  notes_stock?: string;
+  notes_manager?: string;
+  notes_ceo?: string;
 }
 
 export interface HotelOSDatabase {

@@ -210,30 +210,45 @@ class HotelStore {
       const stored = localStorage.getItem('hotel_os_database');
       if (stored) {
         const parsed = JSON.parse(stored);
-        return {
-          ...INITIAL_STATE,
-          ...parsed,
-          shiftReports: parsed.shiftReports || [],
-          consoleMappings: parsed.consoleMappings || this.getDefaultConsoleMappings()
-        };
+        
+        // Check if this is the demo account "The Grand Horizon Resort & Spa" and delete it
+        if (parsed && parsed.settings?.profile?.name === 'The Grand Horizon Resort & Spa') {
+          localStorage.removeItem('hotel_os_database');
+          localStorage.removeItem('hotel_os_db_prof_the_grand_horizon_resort_&_spa');
+          
+          // Clean profiles index as well
+          const indexStr = localStorage.getItem('hotel_os_profiles_index');
+          if (indexStr) {
+            try {
+              const index = JSON.parse(indexStr);
+              const filtered = index.filter((p: any) => p.name !== 'The Grand Horizon Resort & Spa');
+              localStorage.setItem('hotel_os_profiles_index', JSON.stringify(filtered));
+            } catch (err) {}
+          }
+          sessionStorage.removeItem('hotel_os_session');
+        } else {
+          return {
+            ...INITIAL_STATE,
+            ...parsed,
+            shiftReports: parsed.shiftReports || [],
+            consoleMappings: parsed.consoleMappings || this.getDefaultConsoleMappings()
+          };
+        }
       }
     } catch (e) {
       console.error('Failed to load database from localStorage, initializing fresh', e);
     }
     
-    // First run! Auto-seed the sandbox, but keep the user logged out so they see the login page first.
-    this.db = { 
+    // First run or cleared demo: Return a completely clean, uninitialized state
+    // This forces the Setup Wizard to launch, allowing client hotel registration from scratch.
+    const cleanDb: HotelOSDatabase = { 
       ...INITIAL_STATE,
-      consoleMappings: this.getDefaultConsoleMappings()
+      consoleMappings: this.getDefaultConsoleMappings(),
+      isInitialized: false
     };
-    try {
-      this.seedSandbox();
-      this.activeUser = null;
-      sessionStorage.removeItem('hotel_os_session');
-    } catch (err) {
-      console.error('Error auto-seeding first-time database', err);
-    }
-    return this.db;
+    this.db = cleanDb;
+    localStorage.setItem('hotel_os_database', JSON.stringify(cleanDb));
+    return cleanDb;
   }
 
   private saveToStorage(): void {
@@ -1078,6 +1093,19 @@ class HotelStore {
     this.saveToStorage();
   }
 
+  public reconcileProductStock(prodId: string, actualCount: number, notes?: string): void {
+    const prod = this.db.products.find(p => p.id === prodId);
+    if (!prod) return;
+    const diff = actualCount - prod.currentStock;
+    if (diff === 0) return;
+    
+    if (diff > 0) {
+      this.addInventoryMovement(prodId, diff, 'In', notes || 'Shift Reconciliation Audit adjustment');
+    } else {
+      this.addInventoryMovement(prodId, Math.abs(diff), 'Out', notes || 'Shift Reconciliation Audit adjustment');
+    }
+  }
+
   public saveSupplier(sup: Supplier): void {
     const index = this.db.suppliers.findIndex(s => s.id === sup.id);
     if (index !== -1) {
@@ -1445,23 +1473,25 @@ class HotelStore {
 
     const oldStatus = report.status;
     report.status = status;
-    if (notes !== undefined) report.notes = notes;
 
     const currentUser = this.getActiveUser();
 
     if (status === 'Pending Manager Approval') {
       report.stockVerifiedBy = currentUser?.name || 'Stock Officer';
       report.stockVerifiedAt = new Date().toISOString();
+      if (notes !== undefined) report.notes_stock = notes;
       this.addAuditLog('Shift Report Verified', 'Inventory', `Stock dept verified report ${reportId} and forwarded to Manager`);
       this.addNotification('Shift Report Verified', `Report ${reportId} passed stock verification, sent to Manager.`, 'approval');
     } else if (status === 'Pending CEO Approval') {
       report.managerApprovedBy = currentUser?.name || 'Operations Manager';
       report.managerApprovedAt = new Date().toISOString();
+      if (notes !== undefined) report.notes_manager = notes;
       this.addAuditLog('Shift Report Manager Approved', 'Settings', `Manager approved report ${reportId} and forwarded to CEO`);
       this.addNotification('Shift Report Manager Approved', `Report ${reportId} approved by Manager, sent to CEO.`, 'approval');
     } else if (status === 'Approved By CEO') {
       report.ceoApprovedBy = currentUser?.name || 'CEO';
       report.ceoApprovedAt = new Date().toISOString();
+      if (notes !== undefined) report.notes_ceo = notes;
       this.addAuditLog('Shift Report CEO Approved', 'Settings', `CEO approved and finalized shift report ${reportId}`);
       this.addNotification('Shift Report Finalized', `CEO approved shift report ${reportId} successfully.`, 'approval');
     }

@@ -51,6 +51,9 @@ export default function ShiftReporting() {
   // Selected department ID for live portal dashboard simulation
   const [activePortalDeptId, setActivePortalDeptId] = useState<string>('dept_reception');
 
+  // Interactive physical stock verification counts input
+  const [physicalCounts, setPhysicalCounts] = useState<Record<string, string>>({});
+
   const reports = db.shiftReports || [];
 
   // Default to first report if none selected
@@ -66,6 +69,20 @@ export default function ShiftReporting() {
     setActionNotes('');
     setSuccessMsg(`Report successfully updated to "${status}" and forwarded to the next department.`);
     setTimeout(() => setSuccessMsg(''), 5000);
+  };
+
+  const handleReconcileStock = (productId: string, actualCountStr: string, name: string) => {
+    const actualCount = parseInt(actualCountStr, 10);
+    if (isNaN(actualCount)) {
+      alert('Please enter a valid physical count integer first.');
+      return;
+    }
+    
+    if (confirm(`Auto-adjust warehouse inventory of "${name}" to match the physical count of ${actualCount} units? This will register an inventory correction movement.`)) {
+      store.reconcileProductStock(productId, actualCount, `Audit correction for ${name} during shift reconciliation`);
+      setSuccessMsg(`Inventory stock for "${name}" has been successfully updated to match physical count (${actualCount}).`);
+      setTimeout(() => setSuccessMsg(''), 5000);
+    }
   };
 
   const handleSaveMapping = (consoleId: string, consoleName: string) => {
@@ -439,6 +456,111 @@ export default function ShiftReporting() {
                         </tbody>
                       </table>
                     </div>
+
+                    {/* Live Physical Stock Matcher & Discrepancy Link */}
+                    <div className="p-4 bg-blue-50/40 border border-blue-100 rounded-2xl space-y-3">
+                      <div className="flex justify-between items-center">
+                        <h4 className="text-[11px] font-bold text-blue-800 uppercase tracking-wider flex items-center">
+                          <CheckCircle className="h-3.5 w-3.5 mr-1 text-[#1B4F72]" /> Stock Sold vs Remaining Matcher
+                        </h4>
+                        <span className="text-[10px] font-bold text-[#1B4F72] bg-white px-2 py-0.5 rounded border border-blue-150">
+                          Verification Helper Tool
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-gray-500 leading-relaxed">
+                        Check physical stock levels in real-time. Input counted values to verify if they match system ledger expectations (Theoretical Stock after the Shift Sales).
+                      </p>
+
+                      <div className="space-y-2">
+                        {activeReport.itemsSold.filter(it => {
+                          const menuItem = db.menuItems.find(mi => mi.id === it.menuItemId);
+                          return menuItem?.productId;
+                        }).length === 0 ? (
+                          <p className="text-[11px] text-gray-400 italic">No inventory products linked to this shift's sold items.</p>
+                        ) : (
+                          activeReport.itemsSold.map((it, idx) => {
+                            const menuItem = db.menuItems.find(mi => mi.id === it.menuItemId);
+                            const product = menuItem?.productId ? db.products.find(p => p.id === menuItem.productId) : null;
+                            if (!product) return null;
+
+                            const expectedRemaining = product.currentStock;
+                            const physicalCountInput = physicalCounts[product.id] || '';
+                            const physicalCountNum = parseInt(physicalCountInput, 10);
+                            const hasInput = physicalCountInput !== '';
+                            const isMatch = hasInput && !isNaN(physicalCountNum) && physicalCountNum === expectedRemaining;
+                            const discrepancy = hasInput && !isNaN(physicalCountNum) ? physicalCountNum - expectedRemaining : 0;
+
+                            return (
+                              <div key={idx} className="bg-white p-3 rounded-xl border border-gray-150 text-xs space-y-2">
+                                <div className="flex justify-between items-start">
+                                  <div>
+                                    <span className="font-bold text-gray-800 text-[11px] block">{product.name}</span>
+                                    <span className="text-[10px] text-gray-400 block font-mono">ID: {product.id} | Category: {product.category}</span>
+                                  </div>
+                                  <div className="text-right">
+                                    <span className="text-gray-400 text-[10px] block font-semibold">Shift Qty Sold</span>
+                                    <span className="font-mono font-bold text-[#1B4F72] text-[11px] bg-blue-50/50 px-2 py-0.5 rounded border border-blue-100">{it.quantitySold} {product.unit}</span>
+                                  </div>
+                                </div>
+
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-gray-100">
+                                  <div>
+                                    <span className="text-[10px] text-gray-400 block font-semibold uppercase tracking-wider">Expected Balance</span>
+                                    <span className="font-mono font-bold text-gray-700 text-xs block mt-1">{expectedRemaining} {product.unit} left</span>
+                                  </div>
+                                  <div>
+                                    <label className="text-[10px] text-gray-400 block font-semibold uppercase tracking-wider mb-0.5">Physical Checked</label>
+                                    <div className="flex items-center space-x-1 mt-0.5">
+                                      <input
+                                        type="number"
+                                        placeholder="Count"
+                                        className="w-16 px-1.5 py-1 text-xs border border-gray-200 rounded-lg text-center focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono font-bold text-gray-800"
+                                        value={physicalCountInput}
+                                        onChange={(e) => setPhysicalCounts(prev => ({ ...prev, [product.id]: e.target.value }))}
+                                      />
+                                      <button
+                                        type="button"
+                                        onClick={() => setPhysicalCounts(prev => ({ ...prev, [product.id]: expectedRemaining.toString() }))}
+                                        className="px-2 py-1 bg-gray-100 hover:bg-gray-200 text-gray-600 text-[9px] font-bold rounded-lg cursor-pointer transition"
+                                        title="Autofill with expected balance"
+                                      >
+                                        Match
+                                      </button>
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <span className="text-[10px] text-gray-400 block font-semibold uppercase tracking-wider">Status & Action</span>
+                                    {!hasInput ? (
+                                      <span className="text-[10px] text-amber-600 font-bold flex items-center mt-1">
+                                        <span className="w-1.5 h-1.5 bg-amber-500 rounded-full mr-1 animate-ping" />
+                                        Pending count...
+                                      </span>
+                                    ) : isMatch ? (
+                                      <span className="text-[10px] text-emerald-600 font-bold flex items-center mt-1">
+                                        ✓ Matches perfectly!
+                                      </span>
+                                    ) : (
+                                      <div className="space-y-1 mt-0.5">
+                                        <span className="text-[10px] text-red-600 font-bold block">
+                                          ⚠️ Mismatch ({discrepancy > 0 ? `+${discrepancy}` : discrepancy} {product.unit})
+                                        </span>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleReconcileStock(product.id, physicalCountInput, product.name)}
+                                          className="text-[9px] bg-red-600 hover:bg-red-700 text-white font-bold px-2 py-0.5 rounded-lg transition cursor-pointer flex items-center"
+                                        >
+                                          Sync Stock Level
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
                   </div>
 
                   {/* Handover & Approver Notes Log */}
@@ -450,10 +572,22 @@ export default function ShiftReporting() {
                         <span className="text-[10px] text-gray-400 font-bold block uppercase">Cashier Remarks ({activeReport.cashierName}):</span>
                         <p className="text-gray-700 italic mt-0.5">"{activeReport.notes || 'No notes left by cashier.'}"</p>
                       </div>
+                      {activeReport.notes_stock && (
+                        <div className="pt-2 border-t border-gray-200 mt-2">
+                          <span className="text-[10px] text-gray-400 font-bold block uppercase">Stock Department Verification ({activeReport.stockVerifiedBy}):</span>
+                          <p className="text-gray-700 italic mt-0.5">"{activeReport.notes_stock}"</p>
+                        </div>
+                      )}
                       {activeReport.notes_manager && (
                         <div className="pt-2 border-t border-gray-200 mt-2">
                           <span className="text-[10px] text-gray-400 font-bold block uppercase">Manager Comments ({activeReport.managerApprovedBy}):</span>
                           <p className="text-gray-700 italic mt-0.5">"{activeReport.notes_manager}"</p>
+                        </div>
+                      )}
+                      {activeReport.notes_ceo && (
+                        <div className="pt-2 border-t border-gray-200 mt-2">
+                          <span className="text-[10px] text-gray-400 font-bold block uppercase">CEO Sign-off Comments ({activeReport.ceoApprovedBy}):</span>
+                          <p className="text-gray-700 italic mt-0.5">"{activeReport.notes_ceo}"</p>
                         </div>
                       )}
                     </div>
