@@ -2060,7 +2060,7 @@ export default function RestaurantPOS() {
                 </div>
               </div>
 
-              {/* Chef Menu Availability Switchboard */}
+              {/* Central Inventory-Controlled Menu Availability Status Board */}
               <div className="bg-white border border-gray-255 rounded-2xl shadow-sm overflow-hidden transition-all duration-200">
                 <div 
                   onClick={() => setShowChefAvailabilityPanel(!showChefAvailabilityPanel)}
@@ -2070,9 +2070,9 @@ export default function RestaurantPOS() {
                     <span className="text-lg">🧑‍🍳</span>
                     <div>
                       <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wide flex items-center gap-1.5">
-                        Chef Pantry & Dish Availability Panel
+                        Pantry & Dish Stock Status (Inventory Controlled)
                       </h4>
-                      <p className="text-[10px] text-slate-500 font-medium">Toggle item availability to enable/disable on the cashier POS instantly & notify cashier station.</p>
+                      <p className="text-[10px] text-slate-500 font-medium">Read-only live status feed. Stock levels and active/out of stock settings are managed by the Inventory & Procurement department.</p>
                     </div>
                   </div>
                   <div className="flex items-center space-x-2">
@@ -2080,7 +2080,7 @@ export default function RestaurantPOS() {
                       {db.menuItems.filter(item => item.isAvailable !== false).length} Available / {db.menuItems.filter(item => item.isAvailable === false).length} Out
                     </span>
                     <span className="text-slate-400 text-[10px] font-bold uppercase tracking-wider">
-                      {showChefAvailabilityPanel ? '▼ Hide Control' : '▶ Show Control'}
+                      {showChefAvailabilityPanel ? '▼ Hide Status' : '▶ Show Status'}
                     </span>
                   </div>
                 </div>
@@ -2098,8 +2098,9 @@ export default function RestaurantPOS() {
                         />
                         <span className="absolute left-2.5 top-2 text-slate-400 text-xs">🔍</span>
                       </div>
-                      <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
-                        Tap toggles to immediately update stock states & notify terminals
+                      <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                        <span className="h-1.5 w-1.5 bg-amber-500 rounded-full animate-ping" />
+                        <span>Managed via Inventory & Procurement console</span>
                       </div>
                     </div>
 
@@ -2116,38 +2117,23 @@ export default function RestaurantPOS() {
                               key={item.id} 
                               className={`p-2 rounded-xl border transition flex flex-col justify-between space-y-2 ${
                                 isAvail 
-                                  ? 'border-gray-150 bg-slate-50/20 hover:border-slate-300' 
-                                  : 'border-rose-150 bg-rose-50/10'
+                                  ? 'border-gray-150 bg-slate-50/10' 
+                                  : 'border-rose-150 bg-rose-50/5'
                               }`}
                             >
                               <div className="min-h-[2.2rem]">
                                 <span className="text-[8px] font-bold text-slate-400 uppercase tracking-wide block">{item.category}</span>
                                 <h5 className="text-[10px] font-bold text-slate-700 line-clamp-2 leading-tight" title={item.name}>{item.name}</h5>
                               </div>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const updatedItem = { ...item, isAvailable: !isAvail };
-                                  store.saveMenuItem(updatedItem);
-                                  
-                                  // Add cashier notification to alert POS
-                                  setCashierAlerts(prev => [
-                                    {
-                                      id: `chef_alert_${Date.now()}_${item.id}`,
-                                      message: `Chef Notice: "${item.name}" is now ${updatedItem.isAvailable ? 'AVAILABLE ✅' : 'OUT OF STOCK ❌'}.`,
-                                      timestamp: new Date().toLocaleTimeString()
-                                    },
-                                    ...prev
-                                  ]);
-                                }}
-                                className={`w-full py-1 rounded-lg text-[8px] font-bold uppercase tracking-wider transition flex items-center justify-center space-x-1 cursor-pointer ${
+                              <div
+                                className={`w-full py-1 rounded-lg text-[9px] font-bold uppercase tracking-wider transition flex items-center justify-center space-x-1 border ${
                                   isAvail 
-                                    ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-150' 
-                                    : 'bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-150'
+                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-100' 
+                                    : 'bg-rose-50 text-rose-700 border-rose-100'
                                 }`}
                               >
                                 <span>{isAvail ? '🟢 Available' : '🔴 Out of Stock'}</span>
-                              </button>
+                              </div>
                             </div>
                           );
                         })

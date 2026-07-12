@@ -15,6 +15,7 @@ import HRFinance from './components/HRFinance';
 import HousekeepingMaintenance from './components/HousekeepingMaintenance';
 import SettingsComponent from './components/Settings';
 import ShiftReporting from './components/ShiftReporting';
+import Workflows from './components/Workflows';
 
 import {
   Building,
@@ -34,7 +35,8 @@ import {
   X,
   Lock,
   RefreshCw,
-  ClipboardList
+  ClipboardList,
+  GitPullRequest
 } from 'lucide-react';
 
 export default function App() {
@@ -122,6 +124,13 @@ export default function App() {
       label: 'Shift Reconciliation',
       icon: ClipboardList,
       component: ShiftReporting,
+      permission: 'view_dashboard'
+    },
+    {
+      id: 'workflows',
+      label: 'Operations Workflows',
+      icon: GitPullRequest,
+      component: Workflows,
       permission: 'view_dashboard'
     },
     {

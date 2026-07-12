@@ -5,7 +5,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { store } from '../db/store';
-import { InventoryProduct, Supplier, PurchaseRequest, PurchaseOrder, StockMovementType } from '../types';
+import { InventoryProduct, Supplier, PurchaseRequest, PurchaseOrder, StockMovementType, MenuItem } from '../types';
 import {
   Package,
   Plus,
@@ -16,12 +16,20 @@ import {
   AlertTriangle,
   History,
   CheckCircle,
-  FileText
+  FileText,
+  ChefHat,
+  UtensilsCrossed,
+  ShoppingBag
 } from 'lucide-react';
 
 export default function InventoryPurchasing() {
-  const [activeTab, setActiveTab] = useState<'registry' | 'purchases' | 'suppliers'>('registry');
+  const [activeTab, setActiveTab] = useState<'registry' | 'purchases' | 'suppliers' | 'menu_availability'>('registry');
   const db = store.getDb();
+
+  // Menu Search / Filtering states
+  const [menuSearchQuery, setMenuSearchQuery] = useState('');
+  const [menuCatFilter, setMenuCatFilter] = useState('All');
+  const [menuSuccessMsg, setMenuSuccessMsg] = useState('');
 
   // Dialog states
   const [isProductModalOpen, setIsProductModalOpen] = useState(false);
@@ -69,6 +77,32 @@ export default function InventoryPurchasing() {
       return cMatch && sMatch;
     });
   }, [db, prodCategoryFilter, prodSearchQuery]);
+
+  const filteredMenuItems = useMemo(() => {
+    return (db.menuItems || []).filter(item => {
+      const categoryMatch = menuCatFilter === 'All' || item.category === menuCatFilter;
+      const searchMatch = item.name.toLowerCase().includes(menuSearchQuery.toLowerCase()) || 
+                          (item.description || '').toLowerCase().includes(menuSearchQuery.toLowerCase());
+      return categoryMatch && searchMatch;
+    });
+  }, [db.menuItems, menuCatFilter, menuSearchQuery]);
+
+  const handleToggleMenuItemStock = (item: MenuItem) => {
+    const isCurrentlyAvail = item.isAvailable !== false;
+    const updated = { ...item, isAvailable: !isCurrentlyAvail };
+    store.saveMenuItem(updated);
+    
+    // Add central audit log & notification
+    store.addAuditLog('Menu Stock Toggle', 'Inventory', `"${item.name}" availability toggled to ${updated.isAvailable ? 'Available' : 'Out of Stock'}`);
+    store.addNotification(
+      'Stock Availability Changed',
+      `"${item.name}" has been marked as ${updated.isAvailable ? 'AVAILABLE ✅' : 'OUT OF STOCK ❌'} by Inventory Dept.`,
+      'low_stock'
+    );
+    
+    setMenuSuccessMsg(`"${item.name}" has been successfully set to ${updated.isAvailable ? 'AVAILABLE' : 'OUT OF STOCK'}!`);
+    setTimeout(() => setMenuSuccessMsg(''), 5000);
+  };
 
   // ============================================================================
   // OPERATIONS HANDLERS
@@ -207,6 +241,16 @@ export default function InventoryPurchasing() {
             }`}
           >
             Certified Suppliers
+          </button>
+          <button
+            onClick={() => setActiveTab('menu_availability')}
+            className={`px-4 py-2 text-xs font-semibold rounded-xl transition duration-150 border cursor-pointer ${
+              activeTab === 'menu_availability'
+                ? 'bg-[#1B4F72] text-white border-[#1B4F72] shadow-sm'
+                : 'bg-white text-gray-600 border-gray-150 hover:bg-gray-50'
+            }`}
+          >
+            Restaurant Menu Stock & Availability
           </button>
         </div>
       </div>
@@ -617,6 +661,158 @@ export default function InventoryPurchasing() {
                 </div>
               ))}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 4: MENU ITEM AVAILABILITY */}
+      {activeTab === 'menu_availability' && (
+        <div className="bg-white p-6 rounded-2xl border border-gray-150 shadow-sm space-y-6">
+          <div className="flex items-center justify-between gap-4 flex-wrap pb-2 border-b border-gray-100 font-sans">
+            <div>
+              <h3 className="text-sm font-bold text-gray-800 flex items-center gap-1.5 uppercase">
+                <ChefHat className="h-4 w-4 text-[#1B4F72]" /> Restaurant Menu Stock & Availability Switchboard
+              </h3>
+              <p className="text-xs text-gray-400 mt-1">
+                Toggle dish availability and active stock status. Changes are reflected instantly in the Cashier POS Terminal and Kitchen Display System (KDS).
+              </p>
+            </div>
+            
+            <div className="flex items-center space-x-2 bg-gray-50 p-1 rounded-xl border border-gray-150">
+              {['All', 'Starter', 'Main', 'Dessert', 'Beverage', 'Alcoholic'].map(cat => (
+                <button
+                  key={cat}
+                  type="button"
+                  onClick={() => setMenuCatFilter(cat)}
+                  className={`px-3 py-1 rounded-lg text-[10px] font-bold cursor-pointer transition ${
+                    menuCatFilter === cat ? 'bg-white text-gray-800 border border-gray-150 shadow-sm' : 'text-gray-400 hover:text-gray-600'
+                  }`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-slate-50/50 p-3 rounded-xl border border-gray-150">
+            <div className="relative w-full sm:w-80">
+              <input
+                type="text"
+                placeholder="Search menu item or description..."
+                className="w-full pl-8 pr-3 py-1.5 bg-white border border-gray-200 rounded-xl text-xs font-semibold focus:outline-none"
+                value={menuSearchQuery}
+                onChange={(e) => setMenuSearchQuery(e.target.value)}
+              />
+              <span className="absolute left-2.5 top-2.5 text-slate-400 text-xs">🔍</span>
+            </div>
+            <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider flex items-center gap-1.5">
+              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span>{db.menuItems.filter(item => item.isAvailable !== false).length} Active Available Items</span>
+              <span className="text-slate-300">|</span>
+              <span>{db.menuItems.filter(item => item.isAvailable === false).length} Out of Stock</span>
+            </div>
+          </div>
+
+          {menuSuccessMsg && (
+            <div className="p-3 bg-emerald-50 border border-emerald-150 text-emerald-800 rounded-xl text-xs font-bold animate-fadeIn">
+              ✓ {menuSuccessMsg}
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 font-sans">
+            {filteredMenuItems.length === 0 ? (
+              <div className="col-span-full py-12 text-center text-xs text-slate-400 font-semibold italic">
+                No menu items found matching the selected filters.
+              </div>
+            ) : (
+              filteredMenuItems.map(item => {
+                const isAvail = item.isAvailable !== false;
+                const linkedProduct = item.productId ? db.products.find(p => p.id === item.productId) : null;
+                const currentStock = linkedProduct ? linkedProduct.currentStock : null;
+                const isPhysicalLow = linkedProduct && linkedProduct.currentStock <= linkedProduct.minStockAlert;
+
+                return (
+                  <div 
+                    key={item.id} 
+                    className={`p-4 rounded-2xl border transition duration-150 flex flex-col justify-between space-y-4 ${
+                      isAvail 
+                        ? 'border-gray-150 bg-white hover:border-blue-200 shadow-sm' 
+                        : 'border-rose-150 bg-rose-50/10'
+                    }`}
+                  >
+                    <div className="space-y-2">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <span className={`text-[9px] font-bold px-2 py-0.5 rounded border uppercase tracking-wider ${
+                            item.category === 'Starter' ? 'bg-indigo-50 text-indigo-700 border-indigo-150' :
+                            item.category === 'Main' ? 'bg-blue-50 text-blue-700 border-blue-150' :
+                            item.category === 'Dessert' ? 'bg-pink-50 text-pink-700 border-pink-150' :
+                            item.category === 'Beverage' ? 'bg-teal-50 text-teal-700 border-teal-150' :
+                            'bg-amber-50 text-amber-700 border-amber-150'
+                          }`}>
+                            {item.category}
+                          </span>
+                        </div>
+                        <span className="font-mono font-bold text-gray-800 text-sm">${item.price.toFixed(2)}</span>
+                      </div>
+
+                      <div>
+                        <h4 className="text-xs font-bold text-gray-800">{item.name}</h4>
+                        {item.description && (
+                          <p className="text-[10px] text-gray-400 font-medium line-clamp-2 mt-0.5" title={item.description}>
+                            {item.description}
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Product Inventory Connection */}
+                      <div className="bg-slate-50/60 p-2.5 rounded-xl border border-gray-100 text-[10px] space-y-1">
+                        <span className="text-gray-400 block font-semibold uppercase tracking-wider">Inventory Connection</span>
+                        {linkedProduct ? (
+                          <div className="flex justify-between items-center">
+                            <span className="text-gray-600 font-bold truncate max-w-[120px]" title={linkedProduct.name}>
+                              📦 {linkedProduct.name}
+                            </span>
+                            <span className={`font-mono font-bold px-1.5 py-0.5 rounded text-[9px] ${
+                              currentStock !== null && currentStock <= 0
+                                ? 'bg-red-55 text-red-700 border border-red-100'
+                                : isPhysicalLow
+                                ? 'bg-amber-55 text-amber-700 border border-amber-100'
+                                : 'bg-green-55 text-green-700 border border-green-100'
+                            }`}>
+                              Stock: {currentStock} {linkedProduct.unit}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-gray-400 italic block font-semibold">No linked physical raw-material item</span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+                      <div className="flex items-center space-x-1.5">
+                        <span className={`h-2 w-2 rounded-full ${isAvail ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+                        <span className="text-[11px] font-bold text-gray-700">
+                          {isAvail ? 'Available / In Stock' : 'Out of Stock'}
+                        </span>
+                      </div>
+                      
+                      <button
+                        type="button"
+                        onClick={() => handleToggleMenuItemStock(item)}
+                        className={`px-3 py-1 text-[10px] font-bold rounded-lg border uppercase tracking-wider transition duration-150 cursor-pointer ${
+                          isAvail
+                            ? 'bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-150'
+                            : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-150'
+                        }`}
+                      >
+                        {isAvail ? 'Mark Out of Stock' : 'Mark Available'}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })
+            )}
           </div>
         </div>
       )}
