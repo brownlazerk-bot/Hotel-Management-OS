@@ -109,6 +109,7 @@ export default function RestaurantPOS() {
   const [customerName, setCustomerName] = useState<string>('');
   const [guestCount, setGuestCount] = useState<number>(1);
   const [specialInstructions, setSpecialInstructions] = useState<string>('');
+  const [selectedWaiterId, setSelectedWaiterId] = useState<string>('');
   
   // Cart Builder state
   const [cart, setCart] = useState<OrderItem[]>([]);
@@ -119,6 +120,8 @@ export default function RestaurantPOS() {
   // Menu Category Filter & Search
   const [menuFilterCategory, setMenuFilterCategory] = useState<string>('All');
   const [menuSearchQuery, setMenuSearchQuery] = useState<string>('');
+  const [chefMenuSearchQuery, setChefMenuSearchQuery] = useState<string>('');
+  const [showChefAvailabilityPanel, setShowChefAvailabilityPanel] = useState<boolean>(true); // let's default to open or collapsed? Let's default to open so they see it immediately, or collapsed to save space with an elegant badge. Let's make it collapsed by default but extremely obvious, or open by default and very compact. Let's make it open by default! It's very cool!
   
   // Create table state
   const [newTableName, setNewTableName] = useState('');
@@ -244,6 +247,11 @@ export default function RestaurantPOS() {
     const dateStr = new Date(order.createdAt).toISOString().split('T')[0];
     const timeStr = new Date(order.createdAt).toLocaleTimeString();
 
+    const waiterObj = db.users.find(u => u.id === order.waiterId) || db.employees.find(e => e.id === order.waiterId);
+    const waiterName = waiterObj 
+      ? ('name' in waiterObj ? waiterObj.name : `${waiterObj.firstName} ${waiterObj.lastName}`) 
+      : (order.waiterId === 'usr_cashier' ? 'Marcus Brody' : order.waiterId);
+
     // Filter items to food items ONLY (previous requested Separated Beverage Workflow)
     const foodItems = order.items.filter(it => !isDrinkItem(it.menuItemId));
 
@@ -265,6 +273,7 @@ export default function RestaurantPOS() {
     }
     txt += `GUEST COUNT: ${order.guestCount || 1} Pax\n`;
     txt += `CASHIER:     ${activeUserName}\n`;
+    txt += `WAITER:      ${waiterName}\n`;
     txt += `----------------------------------------\n`;
     txt += `QTY   FOOD ITEM NAME / DETAILS\n`;
     txt += `----------------------------------------\n`;
@@ -296,6 +305,11 @@ export default function RestaurantPOS() {
     const dateStr = new Date(order.createdAt).toISOString().split('T')[0];
     const timeStr = new Date(order.createdAt).toLocaleTimeString();
 
+    const waiterObj = db.users.find(u => u.id === order.waiterId) || db.employees.find(e => e.id === order.waiterId);
+    const waiterName = waiterObj 
+      ? ('name' in waiterObj ? waiterObj.name : `${waiterObj.firstName} ${waiterObj.lastName}`) 
+      : (order.waiterId === 'usr_cashier' ? 'Marcus Brody' : order.waiterId);
+
     let txt = `========================================\n`;
     txt += `      THE GRAND HORIZON RESORT & SPA     \n`;
     txt += `  TIN: ${db.settings.profile.taxNumber || 'TX-984-110A'}\n`;
@@ -311,6 +325,7 @@ export default function RestaurantPOS() {
     txt += `ORDER NO:    ${order.orderNumber || order.id}\n`;
     txt += `DATE:        ${dateStr}       TIME: ${timeStr}\n`;
     txt += `CASHIER:     ${activeUserName}\n`;
+    txt += `WAITER:      ${waiterName}\n`;
     txt += `ORDER TYPE:  ${order.orderType || 'Dine In'}\n`;
     if (order.orderType === 'Dine In') {
       txt += `TABLE:       ${tableLabel}\n`;
@@ -465,7 +480,7 @@ export default function RestaurantPOS() {
       customerName: customerName.trim() || undefined,
       guestCount,
       specialInstructions: specialInstructions.trim() || undefined,
-      waiterId: activeUserObj?.id || 'usr_cashier',
+      waiterId: selectedWaiterId || activeUserObj?.id || 'usr_cashier',
       items: cart,
       subtotal: cartSubtotal,
       tax: cartTax,
@@ -485,6 +500,7 @@ export default function RestaurantPOS() {
       setCustomerName('');
       setGuestCount(1);
       setSpecialInstructions('');
+      setSelectedWaiterId('');
       setEditingOrderId(null);
       setPosDiscount(0);
       
@@ -509,6 +525,7 @@ export default function RestaurantPOS() {
           customerName: newOrder.customerName,
           guestCount: newOrder.guestCount,
           specialInstructions: newOrder.specialInstructions,
+          waiterId: newOrder.waiterId,
           items: newOrder.items,
           subtotal: newOrder.subtotal,
           tax: newOrder.tax,
@@ -545,6 +562,7 @@ export default function RestaurantPOS() {
     setCustomerName('');
     setGuestCount(1);
     setSpecialInstructions('');
+    setSelectedWaiterId('');
     setEditingOrderId(null);
     setPosDiscount(0);
 
@@ -594,6 +612,7 @@ export default function RestaurantPOS() {
     setCustomerName(order.customerName || '');
     setGuestCount(order.guestCount || 1);
     setSpecialInstructions(order.specialInstructions || '');
+    setSelectedWaiterId(order.waiterId || '');
     setCart(order.items);
     setPosDiscount(order.discount);
     
@@ -886,7 +905,7 @@ export default function RestaurantPOS() {
     return list.filter(item => {
       const cMatch = menuFilterCategory === 'All' || item.category === menuFilterCategory;
       const sMatch = item.name.toLowerCase().includes(menuSearchQuery.toLowerCase());
-      return cMatch && sMatch && item.isAvailable;
+      return cMatch && sMatch;
     });
   }, [db.menuItems, db.products, menuFilterCategory, menuSearchQuery]);
 
@@ -897,6 +916,44 @@ export default function RestaurantPOS() {
       return sMatch;
     });
   }, [db.products, menuSearchQuery]);
+
+  // Chef filtered menu items for KDS availability control
+  const chefFilteredMenuItems = useMemo(() => {
+    return db.menuItems.filter(item => {
+      return item.name.toLowerCase().includes(chefMenuSearchQuery.toLowerCase()) || 
+             item.category.toLowerCase().includes(chefMenuSearchQuery.toLowerCase());
+    });
+  }, [db.menuItems, chefMenuSearchQuery]);
+
+  // Dynamic waiters memo list
+  const waitersList = useMemo(() => {
+    const list: { id: string; name: string }[] = [];
+    
+    // Add active users with 'Waiter' role
+    db.users.forEach(u => {
+      if (u.role === 'Waiter' && u.isActive) {
+        list.push({ id: u.id, name: `${u.name} (Waiter)` });
+      }
+    });
+
+    // Add employees whose job includes waiter-like role
+    db.employees.forEach(emp => {
+      const pos = emp.position.toLowerCase();
+      if (pos.includes('waiter') || pos.includes('server') || pos.includes('steward') || pos.includes('host')) {
+        const alreadyIn = list.some(x => x.id === emp.id || (db.users.find(u => u.id === x.id)?.employeeId === emp.id));
+        if (!alreadyIn) {
+          list.push({ id: emp.id, name: `${emp.firstName} ${emp.lastName} (Staff Waiter)` });
+        }
+      }
+    });
+
+    // Make sure we have a default waiter if empty
+    if (list.length === 0) {
+      list.push({ id: 'usr_waiter', name: 'Tariq Mendez (Waiter)' });
+    }
+
+    return list;
+  }, [db.users, db.employees]);
 
   // Dynamically calculate reports on Reports Tab (Step 10)
   const reportStats = useMemo(() => {
@@ -950,7 +1007,22 @@ export default function RestaurantPOS() {
     // Group sales by cashier waiterId
     const cashierBreakdown: Record<string, { name: string; sales: number; count: number }> = {};
     completedOrders.forEach(o => {
-      const name = o.waiterId === 'usr_cashier' ? 'Marcus Brody' : (db.users.find(u => u.id === o.waiterId)?.name || o.waiterId);
+      let name = '';
+      if (o.waiterId === 'usr_cashier') {
+        name = 'Marcus Brody';
+      } else {
+        const uObj = db.users.find(u => u.id === o.waiterId);
+        if (uObj) {
+          name = uObj.name;
+        } else {
+          const empObj = db.employees.find(e => e.id === o.waiterId);
+          if (empObj) {
+            name = `${empObj.firstName} ${empObj.lastName}`;
+          } else {
+            name = o.waiterId;
+          }
+        }
+      }
       if (!cashierBreakdown[name]) {
         cashierBreakdown[name] = { name, sales: 0, count: 0 };
       }
@@ -1390,13 +1462,17 @@ export default function RestaurantPOS() {
                     filteredMenuItems.map(item => {
                       const product = item.productId ? db.products.find(p => p.id === item.productId) : null;
                       const stock = product ? product.currentStock : null;
-                      const isOutOfStock = stock !== null && stock <= 0;
+                      const isOutOfStock = (stock !== null && stock <= 0) || item.isAvailable === false;
 
                       return (
                         <div
                           key={item.id}
                           onClick={() => {
-                            if (isOutOfStock) {
+                            if (item.isAvailable === false) {
+                              setPosError(`"${item.name}" is marked as UNAVAILABLE by the chef/kitchen!`);
+                              return;
+                            }
+                            if (stock !== null && stock <= 0) {
                               setPosError(`"${item.name}" ingredient stock is exhausted!`);
                               return;
                             }
@@ -1404,18 +1480,22 @@ export default function RestaurantPOS() {
                           }}
                           className={`p-3.5 rounded-2xl border flex flex-col justify-between h-28 transition group ${
                             isOutOfStock 
-                              ? 'bg-red-50/40 border-red-200 opacity-60 cursor-not-allowed'
+                              ? 'bg-red-50/45 border-red-200 opacity-60 cursor-not-allowed'
                               : 'bg-gray-50/50 hover:bg-[#1B4F72]/5 hover:border-[#1B4F72]/30 border-gray-150 cursor-pointer'
                           }`}
                         >
                           <div>
                             <div className="flex items-start justify-between gap-1.5">
                               <strong className="text-xs text-slate-800 font-bold block group-hover:text-[#1B4F72] truncate">{item.name}</strong>
-                              {stock !== null && (
+                              {item.isAvailable === false ? (
+                                <span className="text-[8px] font-bold px-1.5 py-0.5 rounded uppercase shrink-0 bg-rose-100 text-rose-700 font-black tracking-wider">
+                                  Unavailable
+                                </span>
+                              ) : stock !== null && (
                                 <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded uppercase shrink-0 ${
-                                  isOutOfStock ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
+                                  stock <= 0 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
                                 }`}>
-                                  {isOutOfStock ? 'OOS' : `${stock} left`}
+                                  {stock <= 0 ? 'OOS' : `${stock} left`}
                                 </span>
                               )}
                             </div>
@@ -1456,6 +1536,7 @@ export default function RestaurantPOS() {
                           setCustomerName('');
                           setGuestCount(1);
                           setSpecialInstructions('');
+                          setSelectedWaiterId('');
                           setEditingOrderId(null);
                           setPosDiscount(0);
                           setPrintToast('Switched back to Create Order mode.');
@@ -1578,6 +1659,20 @@ export default function RestaurantPOS() {
                           onChange={(e) => setGuestCount(Number(e.target.value))}
                         />
                       </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Serving Waiter / Staff</label>
+                      <select
+                        value={selectedWaiterId}
+                        onChange={(e) => setSelectedWaiterId(e.target.value)}
+                        className="w-full px-2.5 py-1.5 bg-white border border-gray-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:border-[#1B4F72] font-semibold"
+                      >
+                        <option value="">-- Choose Serving Waiter (Auto-select active) --</option>
+                        {waitersList.map(w => (
+                          <option key={w.id} value={w.id}>{w.name}</option>
+                        ))}
+                      </select>
                     </div>
 
                     <div>
@@ -1712,6 +1807,103 @@ export default function RestaurantPOS() {
                     Auto-Refreshed
                   </span>
                 </div>
+              </div>
+
+              {/* Chef Menu Availability Switchboard */}
+              <div className="bg-white border border-gray-255 rounded-2xl shadow-sm overflow-hidden transition-all duration-200">
+                <div 
+                  onClick={() => setShowChefAvailabilityPanel(!showChefAvailabilityPanel)}
+                  className="bg-slate-50 border-b border-gray-150 px-4 py-3 flex items-center justify-between cursor-pointer hover:bg-slate-100 transition"
+                >
+                  <div className="flex items-center space-x-2.5">
+                    <span className="text-lg">🧑‍🍳</span>
+                    <div>
+                      <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wide flex items-center gap-1.5">
+                        Chef Pantry & Dish Availability Panel
+                      </h4>
+                      <p className="text-[10px] text-slate-500 font-medium">Toggle item availability to enable/disable on the cashier POS instantly & notify cashier station.</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <span className="text-[10px] font-bold bg-[#1B4F72] text-white px-2 py-0.5 rounded-full">
+                      {db.menuItems.filter(item => item.isAvailable !== false).length} Available / {db.menuItems.filter(item => item.isAvailable === false).length} Out
+                    </span>
+                    <span className="text-slate-400 text-[10px] font-bold uppercase tracking-wider">
+                      {showChefAvailabilityPanel ? '▼ Hide Control' : '▶ Show Control'}
+                    </span>
+                  </div>
+                </div>
+
+                {showChefAvailabilityPanel && (
+                  <div className="p-4 space-y-3.5 bg-slate-50/40 animate-fadeIn">
+                    <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+                      <div className="relative w-full sm:w-72">
+                        <input
+                          type="text"
+                          placeholder="Search dish or category..."
+                          value={chefMenuSearchQuery}
+                          onChange={(e) => setChefMenuSearchQuery(e.target.value)}
+                          className="w-full pl-8 pr-3 py-1.5 bg-white border border-gray-200 rounded-xl text-xs text-slate-855 placeholder-gray-400 focus:outline-none focus:border-[#1B4F72] font-semibold transition"
+                        />
+                        <span className="absolute left-2.5 top-2 text-slate-400 text-xs">🔍</span>
+                      </div>
+                      <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
+                        Tap toggles to immediately update stock states & notify terminals
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2.5 max-h-56 overflow-y-auto p-1 bg-white rounded-xl border border-gray-150">
+                      {chefFilteredMenuItems.length === 0 ? (
+                        <div className="col-span-full py-6 text-center text-xs text-slate-400 font-semibold">
+                          No menu items found.
+                        </div>
+                      ) : (
+                        chefFilteredMenuItems.map(item => {
+                          const isAvail = item.isAvailable !== false;
+                          return (
+                            <div 
+                              key={item.id} 
+                              className={`p-2 rounded-xl border transition flex flex-col justify-between space-y-2 ${
+                                isAvail 
+                                  ? 'border-gray-150 bg-slate-50/20 hover:border-slate-300' 
+                                  : 'border-rose-150 bg-rose-50/10'
+                              }`}
+                            >
+                              <div className="min-h-[2.2rem]">
+                                <span className="text-[8px] font-bold text-slate-400 uppercase tracking-wide block">{item.category}</span>
+                                <h5 className="text-[10px] font-bold text-slate-700 line-clamp-2 leading-tight" title={item.name}>{item.name}</h5>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const updatedItem = { ...item, isAvailable: !isAvail };
+                                  store.saveMenuItem(updatedItem);
+                                  
+                                  // Add cashier notification to alert POS
+                                  setCashierAlerts(prev => [
+                                    {
+                                      id: `chef_alert_${Date.now()}_${item.id}`,
+                                      message: `Chef Notice: "${item.name}" is now ${updatedItem.isAvailable ? 'AVAILABLE ✅' : 'OUT OF STOCK ❌'}.`,
+                                      timestamp: new Date().toLocaleTimeString()
+                                    },
+                                    ...prev
+                                  ]);
+                                }}
+                                className={`w-full py-1 rounded-lg text-[8px] font-bold uppercase tracking-wider transition flex items-center justify-center space-x-1 cursor-pointer ${
+                                  isAvail 
+                                    ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-150' 
+                                    : 'bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-150'
+                                }`}
+                              >
+                                <span>{isAvail ? '🟢 Available' : '🔴 Out of Stock'}</span>
+                              </button>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Grid Column Categories matching standard flow */}
@@ -2403,6 +2595,11 @@ function KDSOrderCard({ order, onUpdateStatus, onCancel, onReprintKOT, onReprint
     return !(cat.includes('beverage') || cat.includes('alcoholic') || cat.includes('drink'));
   });
 
+  const waiterObj = db.users.find((u: any) => u.id === order.waiterId) || db.employees.find((e: any) => e.id === order.waiterId);
+  const waiterName = waiterObj 
+    ? ('name' in waiterObj ? waiterObj.name : `${waiterObj.firstName} ${waiterObj.lastName}`) 
+    : (order.waiterId === 'usr_cashier' ? 'Marcus Brody' : order.waiterId);
+
   const isKitchen = ['Kitchen', 'Admin'].includes(role);
   const isManager = ['Restaurant Manager', 'Admin'].includes(role);
   const isCashier = ['Cashier', 'Admin'].includes(role);
@@ -2417,7 +2614,10 @@ function KDSOrderCard({ order, onUpdateStatus, onCancel, onReprintKOT, onReprint
             <span className="text-xs font-black text-slate-800">{order.orderNumber}</span>
           </div>
           <span className="text-[10px] text-slate-400 block mt-0.5">KOT: {order.kotNumber || 'N/A'}</span>
-          <span className="text-[10px] font-semibold text-slate-500 mt-0.5 block bg-slate-50 px-1 rounded inline-block">
+          <span className="text-[10px] text-slate-500 block mt-0.5">
+            👤 Waiter: <span className="font-semibold text-[#1B4F72] text-[10px]">{waiterName}</span>
+          </span>
+          <span className="text-[10px] font-semibold text-slate-500 mt-1 block bg-slate-50 px-1 rounded inline-block">
             {order.orderType === 'Dine In' ? `Table: ${tableLabel}` :
              order.orderType === 'Room Service' ? `Room: ${order.roomNumber}` : 'Take Away'}
           </span>
