@@ -354,12 +354,12 @@ export default function Dashboard() {
                     <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
                   ))}
                 </Pie>
-                <Tooltip formatter={(value) => `$${Number(value).toLocaleString()}`} />
+                <Tooltip formatter={(value) => store.formatMoney(Number(value))} />
               </PieChart>
             </ResponsiveContainer>
             <div className="absolute text-center">
               <span className="text-[10px] text-gray-400 uppercase tracking-widest block">Total Income</span>
-              <span className="text-base font-bold text-gray-800">${stats.monthlyRev.toLocaleString()}</span>
+              <span className="text-base font-bold text-gray-800">{store.formatMoney(stats.monthlyRev)}</span>
             </div>
           </div>
           <div className="space-y-2 mt-4">
@@ -370,7 +370,7 @@ export default function Dashboard() {
                   <span>{entry.name}</span>
                 </div>
                 <span className="text-xs font-bold text-gray-700">
-                  ${Math.round(entry.value).toLocaleString()}
+                  {store.formatMoney(Math.round(entry.value))}
                 </span>
               </div>
             ))}
@@ -447,7 +447,7 @@ export default function Dashboard() {
                       <div key={res.id} className="flex items-center justify-between bg-gray-50 p-2.5 rounded-xl border border-gray-150">
                         <div className="text-[11px]">
                           <span className="font-bold text-gray-700 block">{guest?.firstName} {guest?.lastName}</span>
-                          <span className="text-gray-400">Room {room?.roomNumber} • Balance: ${res.totalAmount - res.amountPaid}</span>
+                          <span className="text-gray-400">Room {room?.roomNumber} • Balance: {store.formatMoney(res.totalAmount - res.amountPaid)}</span>
                         </div>
                         <span className="text-[10px] font-bold text-[#E67E22] bg-orange-50 px-2.5 py-1 rounded-lg border border-orange-100">
                           Due Departure

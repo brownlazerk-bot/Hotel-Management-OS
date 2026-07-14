@@ -6,6 +6,7 @@
 import React, { useState, useMemo } from 'react';
 import { store } from '../db/store';
 import { Employee, Attendance, Payroll, Account, Transaction, Department, User, Role, RoleName, Permission } from '../types';
+import { launchPrintPreview, getExpenseVoucherHTML, getPaymentVoucherHTML, getPayrollReportHTML } from '../utils/printService';
 import {
   Users,
   ShieldAlert,
@@ -24,7 +25,8 @@ import {
   Edit,
   Shield,
   Key,
-  Lock
+  Lock,
+  Printer
 } from 'lucide-react';
 
 export default function HRFinance() {
@@ -539,7 +541,7 @@ export default function HRFinance() {
                       </select>
                     </div>
                     <div>
-                      <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Base Monthly Salary ($)</label>
+                      <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Base Monthly Salary ({store.getCurrencySymbol()})</label>
                       <input
                         type="number"
                         min={1}
@@ -583,7 +585,7 @@ export default function HRFinance() {
                             <span className="block">Email: <strong className="text-gray-700">{emp.email}</strong></span>
                             <span className="block">Contact: <strong className="text-gray-700">{emp.phone}</strong></span>
                             <span className="block">Type: <strong className="text-gray-700">{emp.contractType}</strong></span>
-                            <span className="block">Monthly Base: <strong className="text-gray-700">${emp.salary.toLocaleString()}</strong></span>
+                            <span className="block">Monthly Base: <strong className="text-gray-700">{store.formatMoney(emp.salary)}</strong></span>
                           </div>
                         </div>
 
@@ -888,10 +890,33 @@ export default function HRFinance() {
               />
               <button
                 onClick={handleGeneratePayroll}
-                className="px-4 py-2 bg-[#1B4F72] hover:bg-[#153E5B] text-white rounded-xl text-xs font-semibold flex items-center cursor-pointer"
+                className="px-4 py-2 bg-[#1B4F72] hover:bg-[#153E5B] text-white rounded-xl text-xs font-semibold flex items-center cursor-pointer animate-fadeIn"
               >
                 <Plus className="h-4 w-4 mr-1" /> Generate Payroll Registry
               </button>
+              {db.payroll.filter(p => p.month === payrollMonth).length > 0 && (
+                <button
+                  onClick={() => {
+                    const staffPayrollList = db.payroll
+                      .filter(p => p.month === payrollMonth)
+                      .map(p => {
+                        const emp = db.employees.find(e => e.id === p.employeeId);
+                        return {
+                          id: p.employeeId,
+                          firstName: emp?.firstName || 'Unknown',
+                          lastName: emp?.lastName || 'Staff',
+                          salary: p.netSalary,
+                          role: emp?.position || 'Operator'
+                        };
+                      });
+                    const html = getPayrollReportHTML(staffPayrollList);
+                    launchPrintPreview('Payroll Report', `Monthly Payroll Report - ${payrollMonth}`, html);
+                  }}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold flex items-center cursor-pointer animate-fadeIn"
+                >
+                  <Printer className="h-4 w-4 mr-1.5" /> Print Payroll Report
+                </button>
+              )}
             </div>
           </div>
 
@@ -922,11 +947,11 @@ export default function HRFinance() {
                     return (
                       <tr key={pay.id} className="hover:bg-gray-50/50 font-mono">
                         <td className="py-4 px-3 font-semibold text-gray-800 font-sans">{emp?.firstName} {emp?.lastName}</td>
-                        <td className="py-4 px-3">${pay.baseSalary.toLocaleString()}</td>
-                        <td className="py-4 px-3 text-green-600">+${pay.allowances}</td>
-                        <td className="py-4 px-3 text-green-600">+${pay.bonuses}</td>
-                        <td className="py-4 px-3 text-red-500">-${pay.deductions}</td>
-                        <td className="py-4 px-3 font-bold text-gray-800">${pay.netSalary.toLocaleString()}</td>
+                        <td className="py-4 px-3">{store.formatMoney(pay.baseSalary)}</td>
+                        <td className="py-4 px-3 text-green-600">+{store.formatMoney(pay.allowances)}</td>
+                        <td className="py-4 px-3 text-green-600">+{store.formatMoney(pay.bonuses)}</td>
+                        <td className="py-4 px-3 text-red-500">-{store.formatMoney(pay.deductions)}</td>
+                        <td className="py-4 px-3 font-bold text-gray-800">{store.formatMoney(pay.netSalary)}</td>
                         <td className="py-4 px-3">
                           <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                             pay.paymentStatus === 'Paid' ? 'bg-green-50 text-green-700 border border-green-100' : 'bg-orange-50 text-[#E67E22] border border-orange-100'
@@ -973,7 +998,7 @@ export default function HRFinance() {
                       <span className="font-bold text-gray-800 text-xs block">{acc.name}</span>
                       <span className="text-[10px] text-gray-400 font-mono">{acc.type}</span>
                     </div>
-                    <strong className="text-base font-bold text-gray-800 font-mono">${acc.balance.toLocaleString()}</strong>
+                    <strong className="text-base font-bold text-gray-800 font-mono">{store.formatMoney(acc.balance)}</strong>
                   </div>
                 ))}
               </div>
@@ -1013,7 +1038,7 @@ export default function HRFinance() {
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Amount ($)</label>
+                    <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Amount ({store.getCurrencySymbol()})</label>
                     <input
                       type="number"
                       min={1}
@@ -1068,36 +1093,36 @@ export default function HRFinance() {
                 <div className="space-y-2 text-xs">
                   <div className="flex justify-between text-blue-200">
                     <span>Room Revenue:</span>
-                    <span>${plCalculation.totalRoomRevenue.toLocaleString()}</span>
+                    <span>{store.formatMoney(plCalculation.totalRoomRevenue)}</span>
                   </div>
                   <div className="flex justify-between text-blue-200">
                     <span>Dining Revenue:</span>
-                    <span>${plCalculation.totalRestRevenue.toLocaleString()}</span>
+                    <span>{store.formatMoney(plCalculation.totalRestRevenue)}</span>
                   </div>
                   <div className="flex justify-between text-blue-200">
                     <span>Other Revenue:</span>
-                    <span>${plCalculation.totalOtherRevenue.toLocaleString()}</span>
+                    <span>{store.formatMoney(plCalculation.totalOtherRevenue)}</span>
                   </div>
                   <div className="border-t border-white/10 my-1 pt-1.5 flex justify-between font-bold">
                     <span>Gross Revenues:</span>
-                    <span>${plCalculation.grossRevenue.toLocaleString()}</span>
+                    <span>{store.formatMoney(plCalculation.grossRevenue)}</span>
                   </div>
                   
                   <div className="flex justify-between text-orange-200 mt-2">
                     <span>Payroll Payouts:</span>
-                    <span>-${plCalculation.totalPayrollExpense.toLocaleString()}</span>
+                    <span>-{store.formatMoney(plCalculation.totalPayrollExpense)}</span>
                   </div>
                   <div className="flex justify-between text-orange-200">
                     <span>Procurement Debits:</span>
-                    <span>-${plCalculation.totalInventoryExpense.toLocaleString()}</span>
+                    <span>-{store.formatMoney(plCalculation.totalInventoryExpense)}</span>
                   </div>
                   <div className="flex justify-between text-orange-200">
                     <span>Operations/Utilities:</span>
-                    <span>-${plCalculation.totalOtherExpense.toLocaleString()}</span>
+                    <span>-{store.formatMoney(plCalculation.totalOtherExpense)}</span>
                   </div>
                   <div className="border-t border-white/10 my-1 pt-1.5 flex justify-between font-bold">
                     <span>Total Debits:</span>
-                    <span>-${plCalculation.operatingExpenses.toLocaleString()}</span>
+                    <span>-{store.formatMoney(plCalculation.operatingExpenses)}</span>
                   </div>
                 </div>
               </div>
@@ -1105,7 +1130,7 @@ export default function HRFinance() {
               <div className="border-t border-white/25 pt-4 mt-4 flex items-center justify-between">
                 <span className="text-sm font-bold">Net P&L Balance:</span>
                 <strong className={`text-xl font-mono ${plCalculation.netProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                  ${plCalculation.netProfit.toLocaleString()}
+                  {store.formatMoney(plCalculation.netProfit)}
                 </strong>
               </div>
             </div>
@@ -1124,6 +1149,7 @@ export default function HRFinance() {
                     <th className="py-2.5 px-3">Category</th>
                     <th className="py-2.5 px-3">Asset Account</th>
                     <th className="py-2.5 px-3 text-right">Debit/Credit</th>
+                    <th className="py-2.5 px-3 text-right">Print Voucher</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 font-medium text-gray-700">
@@ -1140,7 +1166,37 @@ export default function HRFinance() {
                         </td>
                         <td className="py-3 px-3 text-gray-500 font-sans">{acc?.name}</td>
                         <td className={`py-3 px-3 text-right font-bold text-sm ${tx.type === 'Income' ? 'text-green-600' : 'text-red-500'}`}>
-                          {tx.type === 'Income' ? '+' : '-'}${tx.amount.toLocaleString()}
+                          {tx.type === 'Income' ? '+' : '-'}{store.formatMoney(tx.amount)}
+                        </td>
+                        <td className="py-3 px-3 text-right">
+                          {tx.type === 'Expense' ? (
+                            <div className="inline-flex gap-1">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const html = getExpenseVoucherHTML(tx);
+                                  launchPrintPreview('Expense Voucher', `Expense Voucher - ${tx.id}`, html);
+                                }}
+                                className="px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded font-bold text-[9px] cursor-pointer inline-flex items-center gap-0.5"
+                                title="Print Expense Voucher"
+                              >
+                                <Printer className="h-2.5 w-2.5" /> Expense
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const html = getPaymentVoucherHTML(tx);
+                                  launchPrintPreview('Payment Voucher', `Payment Voucher - ${tx.id}`, html);
+                                }}
+                                className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-[#1B4F72] border border-blue-200 rounded font-bold text-[9px] cursor-pointer inline-flex items-center gap-0.5"
+                                title="Print Payment Voucher"
+                              >
+                                <Printer className="h-2.5 w-2.5" /> Payment
+                              </button>
+                            </div>
+                          ) : (
+                            <span className="text-gray-300 text-[9px] uppercase font-bold italic">N/A</span>
+                          )}
                         </td>
                       </tr>
                     );

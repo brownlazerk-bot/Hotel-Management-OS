@@ -19,7 +19,8 @@ export type RoleName =
   | 'Housekeeper'
   | 'Storekeeper'
   | 'Maintenance Staff'
-  | 'Security';
+  | 'Security'
+  | 'Manual Operator';
 
 export type Permission =
   | 'all'
@@ -516,8 +517,54 @@ export interface HotelOSDatabase {
   auditLogs: AuditLog[];
   shiftReports: DailyShiftReport[];
   consoleMappings?: ConsoleMapping[];
+  usbPrinters?: USBPrinterConfig[];
+  printJobs?: PrintJob[];
+  reprints?: ReprintRecord[];
   isInitialized: boolean;
   isIsolatedClient?: boolean;
+}
+
+export interface USBPrinterConfig {
+  id: string;
+  name: string;
+  vendorId?: string;
+  productId?: string;
+  type: '58mm' | '80mm';
+  status: 'Online' | 'Offline' | 'Paper Out' | 'Cover Open' | 'Disconnected' | 'Busy';
+  department: 'Cashier' | 'Kitchen' | 'Bar' | 'Reception' | 'Accounting';
+  isDefault: boolean;
+  density: 'Low' | 'Medium' | 'High';
+  encoding: 'ASCII' | 'UTF-8' | 'CP850';
+  margins: { top: number; bottom: number; left: number; right: number };
+  logoEnabled: boolean;
+  logoUrl?: string;
+  footerText: string;
+  copies: number;
+}
+
+export interface PrintJob {
+  id: string;
+  title: string;
+  printerId: string;
+  printerName: string;
+  documentType: 'Receipt' | 'KOT' | 'BOT' | 'Room Service' | 'Purchase Order' | 'Invoice' | 'Expense' | 'Audit' | 'General';
+  content: string; // Plain-text with ESC/POS markers or formatted text
+  createdAt: string;
+  printedAt?: string;
+  printedBy: string;
+  status: 'Pending' | 'Printing' | 'Completed' | 'Failed';
+  errorMessage?: string;
+  copies: number;
+}
+
+export interface ReprintRecord {
+  id: string;
+  documentId: string;
+  documentType: string;
+  reprintedBy: string;
+  reprintedAt: string;
+  reason: string;
+  copies: number;
 }
 
 export interface ConsoleMapping {

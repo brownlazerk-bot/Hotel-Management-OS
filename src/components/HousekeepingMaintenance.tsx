@@ -343,7 +343,7 @@ export default function HousekeepingMaintenance() {
                   />
                 </div>
                 <div>
-                  <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Folio Charge cost ($)</label>
+                  <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Folio Charge cost ({store.getCurrencySymbol()})</label>
                   <input
                     type="number"
                     min={0}

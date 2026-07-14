@@ -6,6 +6,7 @@
 import React, { useState, useMemo } from 'react';
 import { store } from '../db/store';
 import { InventoryProduct, Supplier, PurchaseRequest, PurchaseOrder, StockMovementType, MenuItem } from '../types';
+import { launchPrintPreview, getPurchaseOrderHTML, getGoodsReceivedNoteHTML } from '../utils/printService';
 import {
   Package,
   Plus,
@@ -19,7 +20,8 @@ import {
   FileText,
   ChefHat,
   UtensilsCrossed,
-  ShoppingBag
+  ShoppingBag,
+  Printer
 } from 'lucide-react';
 
 export default function InventoryPurchasing() {
@@ -45,7 +47,8 @@ export default function InventoryPurchasing() {
   const [adjustType, setAdjustType] = useState<StockMovementType>('In');
   const [adjustNotes, setAdjustNotes] = useState('');
 
-  // Product Creation States
+  // Product Creation / Edit States
+  const [editingProduct, setEditingProduct] = useState<InventoryProduct | null>(null);
   const [newProdName, setNewProdName] = useState('');
   const [newProdCat, setNewProdCat] = useState('Food');
   const [newProdUnit, setNewProdUnit] = useState('pcs');
@@ -112,11 +115,11 @@ export default function InventoryPurchasing() {
     if (!newProdName || !newProdUnit) return;
 
     const prod: InventoryProduct = {
-      id: `prod_${Date.now()}`,
+      id: editingProduct ? editingProduct.id : `prod_${Date.now()}`,
       name: newProdName,
       category: newProdCat,
       unit: newProdUnit,
-      currentStock: 0,
+      currentStock: editingProduct ? editingProduct.currentStock : 0,
       minStockAlert: newProdMin,
       unitPrice: newProdPrice,
       warehouseLocation: newProdLoc,
@@ -125,7 +128,33 @@ export default function InventoryPurchasing() {
 
     store.saveInventoryProduct(prod);
     setIsProductModalOpen(false);
+    setEditingProduct(null);
     setNewProdName('');
+    setNewProdCat('Food');
+    setNewProdUnit('pcs');
+    setNewProdMin(5);
+    setNewProdPrice(10);
+    setNewProdLoc('Aisle A');
+    setNewProdSup('');
+  };
+
+  const handleEditProduct = (prod: InventoryProduct) => {
+    setEditingProduct(prod);
+    setNewProdName(prod.name);
+    setNewProdCat(prod.category);
+    setNewProdUnit(prod.unit);
+    setNewProdMin(prod.minStockAlert);
+    setNewProdPrice(prod.unitPrice);
+    setNewProdLoc(prod.warehouseLocation || '');
+    setNewProdSup(prod.supplierId || '');
+    setIsProductModalOpen(true);
+  };
+
+  const handleDeleteProduct = (id: string) => {
+    const prod = db.products.find(p => p.id === id);
+    if (prod && confirm(`Are you sure you want to delete "${prod.name}" from the product registry?`)) {
+      store.deleteInventoryProduct(id);
+    }
   };
 
   const handleAdjustStock = (e: React.FormEvent) => {
@@ -284,7 +313,17 @@ export default function InventoryPurchasing() {
                   onChange={(e) => setProdSearchQuery(e.target.value)}
                 />
                 <button
-                  onClick={() => setIsProductModalOpen(true)}
+                  onClick={() => {
+                    setEditingProduct(null);
+                    setNewProdName('');
+                    setNewProdCat('Food');
+                    setNewProdUnit('pcs');
+                    setNewProdMin(5);
+                    setNewProdPrice(10);
+                    setNewProdLoc('Aisle A');
+                    setNewProdSup('');
+                    setIsProductModalOpen(true);
+                  }}
                   className="px-3 py-1.5 bg-[#1B4F72] hover:bg-[#153E5B] text-white rounded-xl text-xs font-semibold flex items-center cursor-pointer"
                 >
                   <Plus className="h-4 w-4 mr-1" /> Create Item
@@ -300,7 +339,8 @@ export default function InventoryPurchasing() {
                     <th className="py-2.5 px-3">Category</th>
                     <th className="py-2.5 px-3">Location</th>
                     <th className="py-2.5 px-3">Current Stock</th>
-                    <th className="py-2.5 px-3 text-right">Status</th>
+                    <th className="py-2.5 px-3 text-center">Status</th>
+                    <th className="py-2.5 px-3 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
@@ -321,9 +361,9 @@ export default function InventoryPurchasing() {
                         <td className="py-3 px-3">
                           <strong className="text-sm font-mono">{p.currentStock}</strong> <span className="text-gray-400 text-[10px] font-bold">/ Min {p.minStockAlert}</span>
                         </td>
-                        <td className="py-3 px-3 text-right">
+                        <td className="py-3 px-3 text-center">
                           {isLow ? (
-                            <span className="bg-red-50 text-red-700 font-bold border border-red-100 px-2 py-0.5 rounded flex items-center justify-center space-x-1 max-w-[100px] ml-auto">
+                            <span className="bg-red-50 text-red-700 font-bold border border-red-100 px-2 py-0.5 rounded inline-flex items-center justify-center space-x-1 min-w-[70px]">
                               <AlertTriangle className="h-3 w-3 shrink-0" />
                               <span>LOW</span>
                             </span>
@@ -332,6 +372,20 @@ export default function InventoryPurchasing() {
                               Secure
                             </span>
                           )}
+                        </td>
+                        <td className="py-3 px-3 text-right space-x-2 whitespace-nowrap">
+                          <button
+                            onClick={() => handleEditProduct(p)}
+                            className="text-[11px] font-bold text-[#1B4F72] hover:underline cursor-pointer"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => handleDeleteProduct(p.id)}
+                            className="text-[11px] font-bold text-red-600 hover:underline cursor-pointer"
+                          >
+                            Delete
+                          </button>
                         </td>
                       </tr>
                     );
@@ -487,7 +541,7 @@ export default function InventoryPurchasing() {
                   />
                 </div>
                 <div>
-                  <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Unit Cost ($)</label>
+                  <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Unit Cost ({store.getCurrencySymbol()})</label>
                   <input
                     type="number"
                     min={1}
@@ -502,7 +556,7 @@ export default function InventoryPurchasing() {
               <div className="bg-yellow-50/50 p-4 border border-yellow-100 rounded-xl text-[11px] text-gray-500">
                 <div className="flex justify-between font-bold text-gray-700">
                   <span>Total Order Payout:</span>
-                  <span>${poQty * poPrice}</span>
+                  <span>{store.formatMoney(poQty * poPrice)}</span>
                 </div>
               </div>
 
@@ -544,19 +598,43 @@ export default function InventoryPurchasing() {
                       <span className="block font-mono text-[10px] text-gray-400">Date Ordered: {po.orderedDate}</span>
                     </div>
 
-                    <div className="text-right space-y-3 shrink-0">
+                    <div className="text-right space-y-3 shrink-0 flex flex-col items-end">
                       <div>
                         <span className="text-[9px] font-bold text-gray-400 block uppercase tracking-wider">Total amount</span>
                         <strong className="text-base font-bold text-gray-800">${po.totalAmount}</strong>
                       </div>
-                      {po.status === 'Ordered' && (
+                      
+                      <div className="flex flex-col gap-1 w-28">
                         <button
-                          onClick={() => handleReceiveGoods(po.id)}
-                          className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg font-bold text-[10px] cursor-pointer"
+                          type="button"
+                          onClick={() => {
+                            const html = getPurchaseOrderHTML(po, supplier);
+                            launchPrintPreview('Purchase Order', `Purchase Order - ${po.id}`, html);
+                          }}
+                          className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-[#1B4F72] border border-blue-200 rounded-lg font-bold text-[9px] cursor-pointer inline-flex items-center justify-center gap-1 w-full"
                         >
-                          Receive Cargo
+                          <Printer className="h-3 w-3" /> Print PO
                         </button>
-                      )}
+                        {po.status === 'Received' ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const html = getGoodsReceivedNoteHTML(po, supplier);
+                              launchPrintPreview('Goods Received Note', `Goods Received Note - ${po.id}`, html);
+                            }}
+                            className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg font-bold text-[9px] cursor-pointer inline-flex items-center justify-center gap-1 w-full"
+                          >
+                            <Printer className="h-3 w-3" /> Print GRN
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => handleReceiveGoods(po.id)}
+                            className="px-2.5 py-1 bg-green-600 hover:bg-green-700 text-white rounded-lg font-bold text-[9px] cursor-pointer w-full text-center"
+                          >
+                            Receive Cargo
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 );
@@ -753,7 +831,7 @@ export default function InventoryPurchasing() {
                             {item.category}
                           </span>
                         </div>
-                        <span className="font-mono font-bold text-gray-800 text-sm">${item.price.toFixed(2)}</span>
+                        <span className="font-mono font-bold text-gray-800 text-sm">{store.formatMoney(item.price)}</span>
                       </div>
 
                       <div>
@@ -817,13 +895,23 @@ export default function InventoryPurchasing() {
         </div>
       )}
 
-      {/* MODAL: REGISTER NEW PRODUCT CARD */}
+      {/* MODAL: REGISTER/EDIT PRODUCT CARD */}
       {isProductModalOpen && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden">
             <div className="bg-[#1B4F72] text-white p-5 flex items-center justify-between">
-              <h3 className="text-sm font-bold uppercase tracking-wider">Catalog New Inventory Item</h3>
-              <button onClick={() => setIsProductModalOpen(false)} className="text-white hover:text-gray-200 font-bold text-sm bg-white/10 px-3 py-1 rounded-lg cursor-pointer">✕</button>
+              <h3 className="text-sm font-bold uppercase tracking-wider">
+                {editingProduct ? 'Edit Catalogued Inventory Item' : 'Catalog New Inventory Item'}
+              </h3>
+              <button 
+                onClick={() => {
+                  setIsProductModalOpen(false);
+                  setEditingProduct(null);
+                }} 
+                className="text-white hover:text-gray-200 font-bold text-sm bg-white/10 px-3 py-1 rounded-lg cursor-pointer"
+              >
+                ✕
+              </button>
             </div>
 
             <form onSubmit={handleSaveProduct} className="p-6 space-y-4">
@@ -880,7 +968,7 @@ export default function InventoryPurchasing() {
                   />
                 </div>
                 <div>
-                  <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Estimated Unit Price ($)</label>
+                  <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Estimated Unit Price ({store.getCurrencySymbol()})</label>
                   <input
                     type="number"
                     min={1}
@@ -903,10 +991,27 @@ export default function InventoryPurchasing() {
                 />
               </div>
 
+              <div>
+                <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Preferred Supplier</label>
+                <select
+                  className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs"
+                  value={newProdSup}
+                  onChange={(e) => setNewProdSup(e.target.value)}
+                >
+                  <option value="">-- Choose Supplier (Optional) --</option>
+                  {(db.suppliers || []).map(sup => (
+                    <option key={sup.id} value={sup.id}>{sup.name}</option>
+                  ))}
+                </select>
+              </div>
+
               <div className="flex items-center justify-end space-x-2 pt-4">
                 <button
                   type="button"
-                  onClick={() => setIsProductModalOpen(false)}
+                  onClick={() => {
+                    setIsProductModalOpen(false);
+                    setEditingProduct(null);
+                  }}
                   className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-xl font-bold text-xs cursor-pointer"
                 >
                   Cancel
@@ -915,7 +1020,7 @@ export default function InventoryPurchasing() {
                   type="submit"
                   className="px-5 py-2 bg-[#1B4F72] hover:bg-[#153E5B] text-white rounded-xl font-bold text-xs cursor-pointer"
                 >
-                  Register Item
+                  {editingProduct ? 'Save Product Details' : 'Register Item'}
                 </button>
               </div>
             </form>

@@ -39,7 +39,10 @@ import {
   RoleName,
   Permission,
   DailyShiftReport,
-  ConsoleMapping
+  ConsoleMapping,
+  USBPrinterConfig,
+  PrintJob,
+  ReprintRecord
 } from '../types';
 
 // ============================================================================
@@ -86,7 +89,8 @@ const DEFAULT_ROLES: Role[] = [
   { id: '9', name: 'Housekeeper', description: 'Room cleaning and sanitizing technician.', permissions: ['manage_housekeeping'] },
   { id: '10', name: 'Storekeeper', description: 'Stock room guard.', permissions: ['manage_inventory', 'manage_purchasing'] },
   { id: '11', name: 'Maintenance Staff', description: 'Facility engineering team member.', permissions: ['manage_maintenance'] },
-  { id: '12', name: 'Security', description: 'Hotel property security agent.', permissions: ['view_dashboard'] }
+  { id: '12', name: 'Security', description: 'Hotel property security agent.', permissions: ['view_dashboard'] },
+  { id: '13', name: 'Manual Operator', description: 'Operations controller with manual override and process auditing clearance.', permissions: ['view_dashboard', 'manage_restaurant', 'manage_pos', 'manage_inventory', 'manage_purchasing', 'manage_accounting', 'manage_housekeeping', 'manage_maintenance'] }
 ];
 
 const DEFAULT_ACCOUNTS: Account[] = [
@@ -125,6 +129,9 @@ const INITIAL_STATE: HotelOSDatabase = {
   notifications: [],
   auditLogs: [],
   shiftReports: [],
+  usbPrinters: [],
+  printJobs: [],
+  reprints: [],
   isInitialized: false
 };
 
@@ -149,6 +156,8 @@ class HotelStore {
         this.activeUser = null;
       }
     }
+
+    this.startPrinterSimulation();
   }
 
   public getDefaultConsoleMappings(): ConsoleMapping[] {
@@ -161,6 +170,332 @@ class HotelStore {
       { consoleId: 'housekeeping', consoleName: 'Housekeeping & Maintenance', departmentId: 'dept_housekeeping' },
       { consoleId: 'settings', consoleName: 'Settings', departmentId: 'dept_reception' }
     ];
+  }
+
+  public getDefaultPrinters(): USBPrinterConfig[] {
+    return [
+      {
+        id: 'prn_cashier_01',
+        name: 'Main Cashier Printer (58mm)',
+        vendorId: '0x0416',
+        productId: '0x5011',
+        type: '58mm',
+        status: 'Online',
+        department: 'Cashier',
+        isDefault: true,
+        density: 'Medium',
+        encoding: 'UTF-8',
+        margins: { top: 2, bottom: 2, left: 1, right: 1 },
+        logoEnabled: true,
+        footerText: 'Thank you for choosing Grand Horizon!\nPlease visit again.',
+        copies: 1
+      },
+      {
+        id: 'prn_kitchen_01',
+        name: 'Kitchen Hot Line Printer (80mm)',
+        vendorId: '0x04b8',
+        productId: '0x0202',
+        type: '80mm',
+        status: 'Online',
+        department: 'Kitchen',
+        isDefault: true,
+        density: 'High',
+        encoding: 'CP850',
+        margins: { top: 2, bottom: 4, left: 0, right: 0 },
+        logoEnabled: false,
+        footerText: '*** KITCHEN COPY ***',
+        copies: 1
+      },
+      {
+        id: 'prn_bar_01',
+        name: 'Bar Counter Printer (58mm)',
+        vendorId: '0x0dd4',
+        productId: '0x015d',
+        type: '58mm',
+        status: 'Online',
+        department: 'Bar',
+        isDefault: true,
+        density: 'Medium',
+        encoding: 'ASCII',
+        margins: { top: 1, bottom: 1, left: 1, right: 1 },
+        logoEnabled: false,
+        footerText: '*** BAR COPY ***',
+        copies: 1
+      },
+      {
+        id: 'prn_reception_01',
+        name: 'Front Desk Receipt Printer (80mm)',
+        vendorId: '0x04b8',
+        productId: '0x0e15',
+        type: '80mm',
+        status: 'Online',
+        department: 'Reception',
+        isDefault: true,
+        density: 'High',
+        encoding: 'UTF-8',
+        margins: { top: 2, bottom: 2, left: 2, right: 2 },
+        logoEnabled: true,
+        footerText: 'Check-out receipt. Have a safe journey!',
+        copies: 1
+      },
+      {
+        id: 'prn_accounting_01',
+        name: 'Accounting Office Printer (80mm)',
+        vendorId: '0x04b8',
+        productId: '0x0e16',
+        type: '80mm',
+        status: 'Online',
+        department: 'Accounting',
+        isDefault: true,
+        density: 'Medium',
+        encoding: 'UTF-8',
+        margins: { top: 2, bottom: 2, left: 2, right: 2 },
+        logoEnabled: true,
+        footerText: 'Grand Horizon ERP Accounting Ledger Copy',
+        copies: 1
+      }
+    ];
+  }
+
+  private startPrinterSimulation(): void {
+    if (typeof window !== 'undefined') {
+      setInterval(() => {
+        this.processPrintQueueStep();
+        this.simulatePrinterReconnectionStep();
+      }, 3000);
+    }
+  }
+
+  private processPrintQueueStep(): void {
+    if (!this.db || !this.db.printJobs) return;
+    const pendingJobs = this.db.printJobs.filter(j => j.status === 'Pending');
+    if (pendingJobs.length === 0) return;
+
+    let updated = false;
+    pendingJobs.forEach(job => {
+      const printer = (this.db.usbPrinters || []).find(p => p.id === job.printerId);
+      if (!printer) {
+        job.status = 'Failed';
+        job.errorMessage = 'Target printer not configured or removed';
+        updated = true;
+        return;
+      }
+
+      if (printer.status === 'Disconnected') {
+        job.status = 'Failed';
+        job.errorMessage = 'USB cable disconnected';
+        updated = true;
+      } else if (printer.status === 'Offline') {
+        job.status = 'Failed';
+        job.errorMessage = 'Printer is offline';
+        updated = true;
+      } else if (printer.status === 'Paper Out') {
+        job.status = 'Failed';
+        job.errorMessage = 'Paper is finished';
+        updated = true;
+      } else if (printer.status === 'Cover Open') {
+        job.status = 'Failed';
+        job.errorMessage = 'Printer cover is open';
+        updated = true;
+      } else if (printer.status === 'Busy') {
+        // stays pending
+      } else {
+        job.status = 'Printing';
+        updated = true;
+        
+        setTimeout(() => {
+          const freshJob = (this.db.printJobs || []).find(j => j.id === job.id);
+          if (freshJob && freshJob.status === 'Printing') {
+            freshJob.status = 'Completed';
+            freshJob.printedAt = new Date().toISOString();
+            this.addAuditLog('Print Job Completed', 'Printer', `Document "${freshJob.title}" successfully printed on printer "${printer.name}" (${freshJob.copies} copies)`);
+            this.saveToStorage();
+          }
+        }, 1200);
+      }
+    });
+
+    if (updated) {
+      this.saveToStorage();
+    }
+  }
+
+  private simulatePrinterReconnectionStep(): void {
+    if (!this.db || !this.db.usbPrinters) return;
+    let updated = false;
+    this.db.usbPrinters.forEach(printer => {
+      if ((printer.status === 'Disconnected' || printer.status === 'Offline') && Math.random() < 0.15) {
+        printer.status = 'Online';
+        this.addNotification('Printer Connected', `USB Printer "${printer.name}" has been successfully detected and reconnected automatically.`, 'maintenance');
+        this.addAuditLog('Printer Auto-Reconnect', 'Printer', `USB Printer "${printer.name}" automatically reconnected to the system.`);
+        updated = true;
+      }
+    });
+    if (updated) {
+      this.saveToStorage();
+    }
+  }
+
+  public getPrinters(): USBPrinterConfig[] {
+    return this.db.usbPrinters || [];
+  }
+
+  public savePrinter(printer: USBPrinterConfig): void {
+    if (!this.db.usbPrinters) {
+      this.db.usbPrinters = [];
+    }
+    const idx = this.db.usbPrinters.findIndex(p => p.id === printer.id);
+    if (idx !== -1) {
+      this.db.usbPrinters[idx] = printer;
+    } else {
+      this.db.usbPrinters.push(printer);
+    }
+    this.saveToStorage();
+    this.addAuditLog('Update Printer', 'Printer', `Printer "${printer.name}" settings updated (Status: ${printer.status}, Default: ${printer.isDefault})`);
+  }
+
+  public deletePrinter(id: string): void {
+    if (!this.db.usbPrinters) return;
+    const prn = this.db.usbPrinters.find(p => p.id === id);
+    if (prn) {
+      this.db.usbPrinters = this.db.usbPrinters.filter(p => p.id !== id);
+      this.saveToStorage();
+      this.addAuditLog('Delete Printer', 'Printer', `Printer "${prn.name}" was removed from the registry.`);
+    }
+  }
+
+  public getPrintJobs(): PrintJob[] {
+    return this.db.printJobs || [];
+  }
+
+  public getReprints(): ReprintRecord[] {
+    return this.db.reprints || [];
+  }
+
+  public addPrintJob(title: string, dept: USBPrinterConfig['department'], docType: PrintJob['documentType'], content: string, copies?: number): string {
+    if (!this.db.printJobs) {
+      this.db.printJobs = [];
+    }
+    
+    const printers = this.getPrinters();
+    let printer = printers.find(p => p.department === dept && p.isDefault);
+    if (!printer) {
+      printer = printers.find(p => p.department === dept);
+    }
+    if (!printer) {
+      printer = printers.find(p => p.isDefault);
+    }
+    if (!printer) {
+      printer = printers[0];
+    }
+
+    if (!printer) {
+      const fallback = this.getDefaultPrinters()[0];
+      this.db.usbPrinters = [fallback];
+      printer = fallback;
+    }
+
+    const jobCopies = copies || printer.copies || 1;
+    const jobId = `job_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
+    
+    const newJob: PrintJob = {
+      id: jobId,
+      title,
+      printerId: printer.id,
+      printerName: printer.name,
+      documentType: docType,
+      content,
+      createdAt: new Date().toISOString(),
+      printedBy: this.activeUser ? `${this.activeUser.name} (${this.activeUser.role})` : 'System Engine',
+      status: 'Pending',
+      copies: jobCopies
+    };
+
+    this.db.printJobs.unshift(newJob);
+    if (this.db.printJobs.length > 100) {
+      this.db.printJobs.pop();
+    }
+
+    this.saveToStorage();
+    this.addAuditLog('Queue Print Job', 'Printer', `Queued print job "${title}" for printer "${printer.name}"`);
+    return jobId;
+  }
+
+  public retryPrintJob(id: string): void {
+    if (!this.db.printJobs) return;
+    const job = this.db.printJobs.find(j => j.id === id);
+    if (job) {
+      job.status = 'Pending';
+      job.errorMessage = undefined;
+      this.saveToStorage();
+      this.addAuditLog('Retry Print Job', 'Printer', `Retrying print job "${job.title}"`);
+    }
+  }
+
+  public cancelPrintJob(id: string): void {
+    if (!this.db.printJobs) return;
+    const job = this.db.printJobs.find(j => j.id === id);
+    if (job) {
+      job.status = 'Failed';
+      job.errorMessage = 'Cancelled by operator';
+      this.saveToStorage();
+      this.addAuditLog('Cancel Print Job', 'Printer', `Cancelled print job "${job.title}"`);
+    }
+  }
+
+  public clearPrintHistory(): void {
+    this.db.printJobs = [];
+    this.saveToStorage();
+    this.addAuditLog('Clear Print History', 'Printer', `Cleared all print jobs and queue history.`);
+  }
+
+  public reprintDocument(docId: string, docType: string, reason: string, copies?: number): void {
+    if (!this.db.reprints) {
+      this.db.reprints = [];
+    }
+
+    const count = copies || 1;
+    const reprint: ReprintRecord = {
+      id: `rep_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+      documentId: docId,
+      documentType: docType,
+      reprintedBy: this.activeUser ? `${this.activeUser.name} (${this.activeUser.role})` : 'System Engine',
+      reprintedAt: new Date().toISOString(),
+      reason,
+      copies: count
+    };
+
+    this.db.reprints.unshift(reprint);
+    this.addAuditLog('Reprint Triggered', 'Printer', `Reprinted ${docType} "${docId}" (${count} copies). Reason: ${reason}`);
+
+    let content = `========================================\n`;
+    content += `         *** DUPLICATE COPY ***         \n`;
+    content += `               REPRINTED                \n`;
+    content += `----------------------------------------\n`;
+    content += `Document Type: ${docType}\n`;
+    content += `Document ID:   ${docId}\n`;
+    content += `Reprinted By:  ${reprint.reprintedBy}\n`;
+    content += `Reprint Date:  ${reprint.reprintedAt}\n`;
+    content += `Reason:        ${reason}\n`;
+    content += `========================================\n`;
+
+    let dept: USBPrinterConfig['department'] = 'Cashier';
+    let printType: PrintJob['documentType'] = 'Receipt';
+    if (docType.includes('KOT') || docType.includes('Kitchen')) {
+      dept = 'Kitchen';
+      printType = 'KOT';
+    } else if (docType.includes('BOT') || docType.includes('Bar')) {
+      dept = 'Bar';
+      printType = 'BOT';
+    } else if (docType.includes('Purchase') || docType.includes('Order')) {
+      dept = 'Accounting';
+      printType = 'Purchase Order';
+    } else if (docType.includes('Invoice') || docType.includes('Ledger') || docType.includes('Expense')) {
+      dept = 'Accounting';
+      printType = 'Invoice';
+    }
+
+    this.addPrintJob(`Reprint: ${docType} #${docId}`, dept, printType, content, count);
   }
 
   private loadFromStorage(): HotelOSDatabase {
@@ -235,12 +570,40 @@ class HotelStore {
               }
               return r;
             });
+            // Ensure Manual Operator role is in the list
+            const hasManualOperator = parsed.roles.some((r: any) => r.name === 'Manual Operator');
+            if (!hasManualOperator) {
+              parsed.roles.push({
+                id: '13',
+                name: 'Manual Operator',
+                description: 'Operations controller with manual override and process auditing clearance.',
+                permissions: ['view_dashboard', 'manage_restaurant', 'manage_pos', 'manage_inventory', 'manage_purchasing', 'manage_accounting', 'manage_housekeeping', 'manage_maintenance']
+              });
+            }
+          }
+          if (parsed.users) {
+            const hasOperatorUser = parsed.users.some((u: any) => u.username === 'operator' || u.role === 'Manual Operator');
+            if (!hasOperatorUser) {
+              parsed.users.push({
+                id: 'usr_operator',
+                username: 'operator',
+                passwordHash: 'operator123',
+                role: 'Manual Operator',
+                name: 'Alex Vance',
+                email: 'a.vance@grandhorizon.com',
+                isActive: true,
+                createdAt: new Date().toISOString()
+              });
+            }
           }
           return {
             ...INITIAL_STATE,
             ...parsed,
             shiftReports: parsed.shiftReports || [],
-            consoleMappings: parsed.consoleMappings || this.getDefaultConsoleMappings()
+            consoleMappings: parsed.consoleMappings || this.getDefaultConsoleMappings(),
+            usbPrinters: parsed.usbPrinters && parsed.usbPrinters.length > 0 ? parsed.usbPrinters : this.getDefaultPrinters(),
+            printJobs: parsed.printJobs || [],
+            reprints: parsed.reprints || []
           };
         }
       }
@@ -253,6 +616,9 @@ class HotelStore {
     const cleanDb: HotelOSDatabase = { 
       ...INITIAL_STATE,
       consoleMappings: this.getDefaultConsoleMappings(),
+      usbPrinters: this.getDefaultPrinters(),
+      printJobs: [],
+      reprints: [],
       isInitialized: false
     };
     this.db = cleanDb;
@@ -260,7 +626,7 @@ class HotelStore {
     return cleanDb;
   }
 
-  private saveToStorage(): void {
+  public saveToStorage(): void {
     try {
       localStorage.setItem('hotel_os_database', JSON.stringify(this.db));
       
@@ -968,7 +1334,7 @@ class HotelStore {
       }
     }
 
-    this.addAuditLog('Create Restaurant Order', 'Restaurant', `Created Order ${order.id} for Total: $${order.total}`);
+    this.addAuditLog('Create Restaurant Order', 'Restaurant', `Created Order ${order.id} for Total: ${this.formatMoney(order.total)}`);
     this.addNotification('New Kitchen Order', `Order ${order.id} sent to the Kitchen queue.`, 'booking');
     this.saveToStorage();
   }
@@ -1050,7 +1416,7 @@ class HotelStore {
       }
     });
 
-    this.addAuditLog('POS Sale Complete', 'POS', `Completed POS sale ${sale.id} for $${sale.total}`);
+    this.addAuditLog('POS Sale Complete', 'POS', `Completed POS sale ${sale.id} for ${this.formatMoney(sale.total)}`);
     this.saveToStorage();
   }
 
@@ -1065,6 +1431,11 @@ class HotelStore {
     } else {
       this.db.products.push(prod);
     }
+    this.saveToStorage();
+  }
+
+  public deleteInventoryProduct(id: string): void {
+    this.db.products = this.db.products.filter(p => p.id !== id);
     this.saveToStorage();
   }
 
@@ -1340,7 +1711,7 @@ class HotelStore {
     };
 
     this.db.transactions.unshift(tx);
-    this.addAuditLog('Ledger Entry', 'Accounting', `Recorded ${type} of $${amount} to ${acc.name} (${category})`);
+    this.addAuditLog('Ledger Entry', 'Accounting', `Recorded ${type} of ${this.formatMoney(amount)} to ${acc.name} (${category})`);
     this.saveToStorage();
   }
 
@@ -1457,7 +1828,7 @@ class HotelStore {
     );
 
     const emp = this.db.employees.find(e => e.id === pay.employeeId);
-    this.addAuditLog('Pay Salary', 'Payroll', `Paid salary of $${pay.netSalary} to ${emp?.firstName} ${emp?.lastName}`);
+    this.addAuditLog('Pay Salary', 'Payroll', `Paid salary of ${this.formatMoney(pay.netSalary)} to ${emp?.firstName} ${emp?.lastName}`);
     this.saveToStorage();
   }
 
@@ -1467,7 +1838,7 @@ class HotelStore {
 
   public addShiftReport(report: DailyShiftReport): void {
     this.db.shiftReports.unshift(report);
-    this.addAuditLog('Shift Report Submitted', 'POS', `Cashier ${report.cashierName} closed shift. Expected: $${report.expectedCash}, Actual: $${report.actualCash}`);
+    this.addAuditLog('Shift Report Submitted', 'POS', `Cashier ${report.cashierName} closed shift. Expected: ${this.formatMoney(report.expectedCash)}, Actual: ${this.formatMoney(report.actualCash)}`);
     this.addNotification('Shift Report Submitted', `Daily shift report submitted by ${report.cashierName} for verification.`, 'approval');
     this.saveToStorage();
   }
@@ -1552,7 +1923,8 @@ class HotelStore {
       { id: 'usr_recep', username: 'recep', passwordHash: 'recep123', role: 'Receptionist', name: 'Chloe Sterling', email: 'c.sterling@grandhorizon.com', isActive: true, createdAt: new Date().toISOString() },
       { id: 'usr_cashier', username: 'cashier', passwordHash: 'cash123', role: 'Cashier', name: 'Marcus Brody', email: 'm.brody@grandhorizon.com', isActive: true, createdAt: new Date().toISOString() },
       { id: 'usr_waiter', username: 'waiter', passwordHash: 'wait123', role: 'Waiter', name: 'Tariq Mendez', email: 't.mendez@grandhorizon.com', isActive: true, createdAt: new Date().toISOString() },
-      { id: 'usr_hk', username: 'hk', passwordHash: 'hk123', role: 'Housekeeper', name: 'Maria Santos', email: 'm.santos@grandhorizon.com', isActive: true, createdAt: new Date().toISOString() }
+      { id: 'usr_hk', username: 'hk', passwordHash: 'hk123', role: 'Housekeeper', name: 'Maria Santos', email: 'm.santos@grandhorizon.com', isActive: true, createdAt: new Date().toISOString() },
+      { id: 'usr_operator', username: 'operator', passwordHash: 'operator123', role: 'Manual Operator', name: 'Alex Vance', email: 'a.vance@grandhorizon.com', isActive: true, createdAt: new Date().toISOString() }
     ];
 
     // 3. Departments

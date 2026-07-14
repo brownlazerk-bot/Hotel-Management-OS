@@ -1,6 +1,19 @@
 import React, { useState, useMemo } from 'react';
 import { store } from '../db/store';
 import { DailyShiftReport, ConsoleMapping } from '../types';
+import { 
+  launchPrintPreview,
+  getDailyReportHTML,
+  getWeeklyReportHTML,
+  getMonthlyReportHTML,
+  getAnnualReportHTML,
+  getInventoryReportHTML,
+  getSalesReportHTML,
+  getAuditReportHTML,
+  getProfitLossStatementHTML,
+  getBalanceSheetHTML,
+  getCashFlowStatementHTML
+} from '../utils/printService';
 import {
   ClipboardList,
   CheckCircle,
@@ -23,6 +36,7 @@ import {
   Wrench,
   Shield,
   Edit3,
+  Printer,
   Save,
   Home,
   Plus,
@@ -37,7 +51,12 @@ export default function ShiftReporting() {
   const activeUser = store.getActiveUser();
 
   // Active module tab
-  const [activeConsoleTab, setActiveConsoleTab] = useState<'audit' | 'management'>('audit');
+  const [activeConsoleTab, setActiveConsoleTab] = useState<'audit' | 'management' | 'business_reports'>('audit');
+
+  // Business operations reporting states
+  const [reportFrequency, setReportFrequency] = useState<'daily' | 'weekly' | 'monthly'>('daily');
+  const [reportDateRange, setReportDateRange] = useState<string>('current'); // 'current' | 'previous'
+  const [showPrintModal, setShowPrintModal] = useState<boolean>(false);
 
   // Selected report for detail pane
   const [selectedReportId, setSelectedReportId] = useState<string>('');
@@ -157,6 +176,17 @@ export default function ShiftReporting() {
         >
           <Sliders className="h-4 w-4" />
           <span>Console Control & Department Portals</span>
+        </button>
+        <button
+          onClick={() => setActiveConsoleTab('business_reports')}
+          className={`pb-3 text-xs font-bold transition duration-150 border-b-2 cursor-pointer flex items-center space-x-1.5 ${
+            activeConsoleTab === 'business_reports'
+              ? 'border-[#1B4F72] text-[#1B4F72]'
+              : 'border-transparent text-gray-400 hover:text-gray-600'
+          }`}
+        >
+          <TrendingUp className="h-4 w-4 text-emerald-600" />
+          <span>Executive Business & Operations Reports</span>
         </button>
       </div>
 
@@ -653,7 +683,7 @@ export default function ShiftReporting() {
                       <div className="space-y-3">
                         <textarea
                           rows={2.5}
-                          placeholder="Add management comments, e.g. Reviewed shift discrepancy of -$5. Reason verified (change mistake). Approved for CEO final sign-off."
+                          placeholder={`Add management comments, e.g. Reviewed shift discrepancy. Reason verified. Approved for CEO final sign-off.`}
                           className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-[#1B4F72] text-gray-800"
                           value={actionNotes}
                           onChange={(e) => setActionNotes(e.target.value)}
@@ -1260,6 +1290,558 @@ export default function ShiftReporting() {
 
         </div>
       )}
+
+      {/* TAB 3: EXECUTIVE BUSINESS & OPERATIONS REPORTS */}
+      {activeConsoleTab === 'business_reports' && (() => {
+        // Dynamic time-window helper
+        const isWithinRange = (dateStr: string) => {
+          if (!dateStr) return false;
+          const d = new Date(dateStr);
+          const now = new Date();
+          const diffTime = Math.abs(now.getTime() - d.getTime());
+          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+          
+          if (reportFrequency === 'daily') {
+            if (reportDateRange === 'current') return diffDays <= 1;
+            return diffDays > 1 && diffDays <= 2;
+          } else if (reportFrequency === 'weekly') {
+            if (reportDateRange === 'current') return diffDays <= 7;
+            return diffDays > 7 && diffDays <= 14;
+          } else { // monthly
+            if (reportDateRange === 'current') return diffDays <= 30;
+            return diffDays > 30 && diffDays <= 60;
+          }
+        };
+
+        // 1. FINANCIAL FLOWS
+        // POS Cash Inflows
+        const filteredPOSOrders = (db.restaurantOrders || []).filter(o => 
+          (o.status === 'Paid' || o.status === 'Completed' || o.status === 'Served') && isWithinRange(o.createdAt)
+        );
+        const totalPOSInflows = filteredPOSOrders.reduce((sum, o) => sum + o.total, 0);
+
+        // Procurement PO Outflows
+        const filteredPOs = (db.purchaseOrders || []).filter(po => 
+          po.status === 'Received' && isWithinRange(po.receivedDate || po.orderedDate)
+        );
+        const totalPOCost = filteredPOs.reduce((sum, po) => sum + po.totalAmount, 0);
+
+        // COGS (Theoretical Ingredient Depletion Value)
+        let totalCOGS = 0;
+        let totalDishesSold = 0;
+        filteredPOSOrders.forEach(o => {
+          (o.items || []).forEach(it => {
+            totalDishesSold += it.quantity;
+            const mItem = db.menuItems?.find(mi => mi.id === it.menuItemId);
+            if (mItem && mItem.productId) {
+              const prod = db.products?.find(p => p.id === mItem.productId);
+              if (prod) {
+                totalCOGS += it.quantity * prod.unitPrice;
+              }
+            }
+          });
+        });
+
+        // Spoilage, Wastage & Expiry Outflows
+        const filteredMovements = (db.inventoryMovements || []).filter(mov => 
+          mov.type === 'Out' && 
+          !mov.notes?.includes('POS Order') && 
+          !mov.notes?.includes('POS Sale') && 
+          isWithinRange(mov.createdAt || new Date().toISOString())
+        );
+        const totalWastageCost = filteredMovements.reduce((sum, mov) => {
+          const prod = db.products?.find(p => p.id === mov.productId);
+          const cost = prod ? prod.unitPrice : 1;
+          return sum + (mov.quantity * cost);
+        }, 0);
+
+        // Swimming Pool Linen Laundry Processing Costs ($1.50 flat processing charge per towel)
+        const filteredLaundry = (db.laundryItems || []).filter(l => isWithinRange(l.createdAt));
+        const totalLinenTowelQty = filteredLaundry.reduce((sum, l) => sum + l.quantity, 0);
+        const totalLaundryCost = totalLinenTowelQty * 1.50;
+
+        // Executive Net Operational Profit Margin
+        const totalOperationalCosts = totalCOGS + totalPOCost + totalWastageCost + totalLaundryCost;
+        const netOperationalProfit = totalPOSInflows - totalOperationalCosts;
+        const profitMarginPercent = totalPOSInflows > 0 ? (netOperationalProfit / totalPOSInflows) * 100 : 0;
+
+        // 2. KITCHEN CONSUMPTION TELEMETRY
+        const foodOrdersCount = filteredPOSOrders.filter(o => 
+          o.items?.some(it => {
+            const mItem = db.menuItems?.find(mi => mi.id === it.menuItemId);
+            return mItem?.category !== 'Beverage' && mItem?.category !== 'Alcoholic';
+          })
+        ).length;
+        const beverageOrdersCount = filteredPOSOrders.length - foodOrdersCount;
+        const outOfStockDishes = (db.menuItems || []).filter(m => m.isAvailable === false).length;
+
+        // 3. SWIMMING POOL OPERATIONS TELEMETRY
+        let poolPh = 7.4;
+        let poolChlorine = 2.2;
+        let poolTemp = 27.2;
+        let cleanTowels = 34;
+        let dirtyTowels = 8;
+        try {
+          const phVal = localStorage.getItem('pool_ph');
+          const clVal = localStorage.getItem('pool_chlorine');
+          const tempVal = localStorage.getItem('pool_temp');
+          const cleanT = localStorage.getItem('pool_clean_towels');
+          const dirtyT = localStorage.getItem('pool_dirty_towels');
+          if (phVal) poolPh = parseFloat(phVal);
+          if (clVal) poolChlorine = parseFloat(clVal);
+          if (tempVal) poolTemp = parseFloat(tempVal);
+          if (cleanT) cleanTowels = parseInt(cleanT, 10);
+          if (dirtyT) dirtyTowels = parseInt(dirtyT, 10);
+        } catch (e) {}
+
+        const chemicalHealth = (poolPh >= 7.2 && poolPh <= 7.6 && poolChlorine >= 1.0 && poolChlorine <= 3.0) 
+          ? '🟢 Normal & Balanced' 
+          : '🚨 Chemistry Alert!';
+
+        // 4. HOUSEKEEPING & ROOMS TELEMETRY
+        const currentTasks = (db.cleaningTasks || []).filter(t => isWithinRange(t.assignedAt));
+        const completedTasks = currentTasks.filter(t => t.status === 'Inspected' || t.status === 'Completed');
+        const cleaningCompletionRate = currentTasks.length > 0 
+          ? Math.round((completedTasks.length / currentTasks.length) * 100) 
+          : 100;
+
+        // 5. PROCUREMENT & STOREHOUSE
+        const lowStockProducts = (db.products || []).filter(p => p.currentStock <= p.minStockAlert).length;
+        const totalStorehouseValue = (db.products || []).reduce((sum, p) => sum + (p.currentStock * p.unitPrice), 0);
+
+        return (
+          <div className="space-y-6">
+            {/* Control Panel Filter bar */}
+            <div className="bg-white p-5 rounded-2xl border border-gray-150 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
+              <div className="flex items-center space-x-3.5">
+                <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Report Frequency:</span>
+                <div className="inline-flex rounded-xl p-1 bg-gray-50 border border-gray-150">
+                  <button
+                    onClick={() => setReportFrequency('daily')}
+                    className={`px-3 py-1.5 text-xs font-bold rounded-lg cursor-pointer transition ${
+                      reportFrequency === 'daily' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                  >
+                    Daily Report
+                  </button>
+                  <button
+                    onClick={() => setReportFrequency('weekly')}
+                    className={`px-3 py-1.5 text-xs font-bold rounded-lg cursor-pointer transition ${
+                      reportFrequency === 'weekly' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                  >
+                    Weekly Performance
+                  </button>
+                  <button
+                    onClick={() => setReportFrequency('monthly')}
+                    className={`px-3 py-1.5 text-xs font-bold rounded-lg cursor-pointer transition ${
+                      reportFrequency === 'monthly' ? 'bg-slate-900 text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                  >
+                    Monthly Review
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-3 w-full md:w-auto justify-end">
+                <div className="flex items-center space-x-1.5 bg-slate-50 border border-gray-200 px-3 py-1.5 rounded-lg text-xs font-semibold">
+                  <span className="text-gray-400">Time-Window:</span>
+                  <select
+                    value={reportDateRange}
+                    onChange={(e) => setReportDateRange(e.target.value)}
+                    className="bg-transparent text-gray-800 focus:outline-none cursor-pointer"
+                  >
+                    <option value="current">Current Period ({reportFrequency === 'daily' ? 'Today' : reportFrequency === 'weekly' ? 'This Week' : 'This Month'})</option>
+                    <option value="previous">Previous Comparison Period</option>
+                  </select>
+                </div>
+
+                <button
+                  onClick={() => setShowPrintModal(true)}
+                  className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-xs cursor-pointer shadow-sm transition flex items-center gap-1.5"
+                >
+                  📄 Export & Print PDF
+                </button>
+              </div>
+            </div>
+
+            {/* FINANCIAL HEALTH GRID SUMMARY */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="bg-white p-5 rounded-2xl border border-gray-150 shadow-sm">
+                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">Gross POS Sales Inflows</span>
+                <span className="text-2xl font-bold font-mono text-emerald-600">{store.formatMoney(totalPOSInflows)}</span>
+                <p className="text-[10px] text-gray-400 mt-1">{filteredPOSOrders.length} completed transactions</p>
+              </div>
+
+              <div className="bg-white p-5 rounded-2xl border border-gray-150 shadow-sm">
+                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">Total Operating Outflows</span>
+                <span className="text-2xl font-bold font-mono text-rose-600">{store.formatMoney(totalOperationalCosts)}</span>
+                <p className="text-[10px] text-gray-400 mt-1">Raw COGS + POs + Waste + Linen</p>
+              </div>
+
+              <div className="bg-white p-5 rounded-2xl border border-gray-150 shadow-sm">
+                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">Net Executive Profit Yield</span>
+                <span className={`text-2xl font-bold font-mono ${netOperationalProfit >= 0 ? 'text-[#1B4F72]' : 'text-red-600'}`}>
+                  {store.formatMoney(netOperationalProfit)}
+                </span>
+                <p className="text-[10px] text-gray-400 mt-1">Operational Gross Margin subtraction</p>
+              </div>
+
+              <div className="bg-white p-5 rounded-2xl border border-gray-150 shadow-sm">
+                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">Gross Markup Yield</span>
+                <span className={`text-2xl font-bold font-mono ${profitMarginPercent >= 0 ? 'text-amber-600' : 'text-red-500'}`}>
+                  {profitMarginPercent.toFixed(1)}%
+                </span>
+                <p className="text-[10px] text-gray-400 mt-1">Efficiency ratio on sales markup</p>
+              </div>
+            </div>
+
+            {/* INTERACTIVE MULTI-MODULE BREAKDOWN CARDS */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              
+              {/* KITCHEN & BEVERAGE PRODUCTION */}
+              <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+                <div className="bg-slate-50 border-b border-gray-150 px-4 py-3 flex items-center justify-between">
+                  <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wide">🧑‍🍳 Kitchen & Bar Consumption Audit</h3>
+                  <span className="text-[10px] font-bold bg-[#1B4F72] text-white px-2 py-0.5 rounded-full">Dining POS Link</span>
+                </div>
+                <div className="p-4 space-y-3.5 text-xs font-medium text-slate-600">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="p-3 bg-gray-50 rounded-xl border border-gray-150">
+                      <span className="text-[10px] text-gray-400 block uppercase">Dining Tickets Paid</span>
+                      <strong className="text-sm font-bold text-slate-800">{filteredPOSOrders.length} orders</strong>
+                    </div>
+                    <div className="p-3 bg-gray-50 rounded-xl border border-gray-150">
+                      <span className="text-[10px] text-gray-400 block uppercase">Total Dishes Prepared</span>
+                      <strong className="text-sm font-bold text-slate-800">{totalDishesSold} plates</strong>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2 pt-2">
+                    <div className="flex justify-between pb-1.5 border-b border-gray-100">
+                      <span>Kitchen prepared orders (Food items):</span>
+                      <span className="font-bold text-slate-800">{foodOrdersCount} tickets</span>
+                    </div>
+                    <div className="flex justify-between pb-1.5 border-b border-gray-100">
+                      <span>Bar dispensed orders (Beverage items):</span>
+                      <span className="font-bold text-slate-800">{beverageOrdersCount} tickets</span>
+                    </div>
+                    <div className="flex justify-between pb-1.5 border-b border-gray-100">
+                      <span>Theoretical ingredient cost of sales (COGS):</span>
+                      <span className="font-bold text-rose-600">{store.formatMoney(totalCOGS)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Chef out of stock locked menu dishes:</span>
+                      <span className={`font-bold ${outOfStockDishes > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{outOfStockDishes} items</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* SWIMMING POOL OPERATIONS */}
+              <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+                <div className="bg-slate-50 border-b border-gray-150 px-4 py-3 flex items-center justify-between">
+                  <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wide">🏊 Swimming Pool & Linen Consumption</h3>
+                  <span className="text-[10px] font-bold bg-indigo-500 text-white px-2 py-0.5 rounded-full">Linen & Stock Link</span>
+                </div>
+                <div className="p-4 space-y-3.5 text-xs font-medium text-slate-600">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="p-3 bg-gray-50 rounded-xl border border-gray-150">
+                      <span className="text-[10px] text-gray-400 block uppercase">Clean Towels on Shelf</span>
+                      <strong className="text-sm font-bold text-indigo-700">{cleanTowels} units</strong>
+                    </div>
+                    <div className="p-3 bg-gray-50 rounded-xl border border-gray-150">
+                      <span className="text-[10px] text-gray-400 block uppercase">Dirty Towels at Station</span>
+                      <strong className="text-sm font-bold text-rose-700">{dirtyTowels} units</strong>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2 pt-2">
+                    <div className="flex justify-between pb-1.5 border-b border-gray-100">
+                      <span>Water Chemistry health safety standard:</span>
+                      <span className="font-bold text-slate-800">{chemicalHealth}</span>
+                    </div>
+                    <div className="flex justify-between pb-1.5 border-b border-gray-100">
+                      <span>Tested levels (Live pH / Chlorine):</span>
+                      <span className="font-mono font-bold text-slate-800">pH: {poolPh} • Cl: {poolChlorine} ppm</span>
+                    </div>
+                    <div className="flex justify-between pb-1.5 border-b border-gray-100">
+                      <span>Towels sent to central laundry in period:</span>
+                      <span className="font-bold text-slate-800">{totalLinenTowelQty} towels washed</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Washing processing costs ({store.formatMoney(1.50)} per towel):</span>
+                      <span className="font-bold text-rose-600">{store.formatMoney(totalLaundryCost)}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* HOUSEKEEPING & ROOMS */}
+              <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+                <div className="bg-slate-50 border-b border-gray-150 px-4 py-3 flex items-center justify-between">
+                  <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wide">🧹 Housekeeping & Facility Operations</h3>
+                  <span className="text-[10px] font-bold bg-purple-500 text-white px-2 py-0.5 rounded-full">Rooms Link</span>
+                </div>
+                <div className="p-4 space-y-3.5 text-xs font-medium text-slate-600">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="p-3 bg-gray-50 rounded-xl border border-gray-150">
+                      <span className="text-[10px] text-gray-400 block uppercase">Clean Tasks Tracked</span>
+                      <strong className="text-sm font-bold text-slate-800">{currentTasks.length} tasks</strong>
+                    </div>
+                    <div className="p-3 bg-gray-50 rounded-xl border border-gray-150">
+                      <span className="text-[10px] text-gray-400 block uppercase">Washing Completion Rate</span>
+                      <strong className="text-sm font-bold text-purple-700">{cleaningCompletionRate}%</strong>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2 pt-2">
+                    <div className="flex justify-between pb-1.5 border-b border-gray-100">
+                      <span>Inspected & clean rooms dispatched:</span>
+                      <span className="font-bold text-slate-800">{completedTasks.length} rooms</span>
+                    </div>
+                    <div className="flex justify-between pb-1.5 border-b border-gray-100">
+                      <span>Maintenance and engineering unresolved tickets:</span>
+                      <span className={`font-bold ${(db.maintenanceRequests || []).filter(r => r.status !== 'Resolved').length > 0 ? 'text-amber-600' : 'text-emerald-600'}`}>
+                        {(db.maintenanceRequests || []).filter(r => r.status !== 'Resolved').length} tickets
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Average laundry items processed:</span>
+                      <span className="font-bold text-slate-800">{(db.laundryItems || []).length} loads</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* PROCUREMENT & STOREHOUSE STOCK */}
+              <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+                <div className="bg-slate-50 border-b border-gray-150 px-4 py-3 flex items-center justify-between">
+                  <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wide">📦 Central Storehouse Stock & Procurement</h3>
+                  <span className="text-[10px] font-bold bg-emerald-500 text-white px-2 py-0.5 rounded-full">Inventory Link</span>
+                </div>
+                <div className="p-4 space-y-3.5 text-xs font-medium text-slate-600">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="p-3 bg-gray-50 rounded-xl border border-gray-150">
+                      <span className="text-[10px] text-gray-400 block uppercase">Received POs Value</span>
+                      <strong className="text-sm font-bold text-emerald-600">{store.formatMoney(totalPOCost)}</strong>
+                    </div>
+                    <div className="p-3 bg-gray-50 rounded-xl border border-gray-150">
+                      <span className="text-[10px] text-gray-400 block uppercase">Warehouse Stock Valuation</span>
+                      <strong className="text-sm font-bold text-slate-800">{store.formatMoney(totalStorehouseValue)}</strong>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2 pt-2">
+                    <div className="flex justify-between pb-1.5 border-b border-gray-100">
+                      <span>New purchase orders processed:</span>
+                      <span className="font-bold text-slate-800">{filteredPOs.length} PO entries</span>
+                    </div>
+                    <div className="flex justify-between pb-1.5 border-b border-gray-100">
+                      <span>Products below safety minimum alerts:</span>
+                      <span className={`font-bold ${lowStockProducts > 0 ? 'text-rose-600 font-bold' : 'text-emerald-600'}`}>{lowStockProducts} products</span>
+                    </div>
+                    <div className="flex justify-between pb-1.5 border-b border-gray-100">
+                      <span>Total logged spoilage/wastage losses in period:</span>
+                      <span className="font-bold text-rose-600">{store.formatMoney(totalWastageCost)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Central inventory active products in index:</span>
+                      <span className="font-bold text-slate-800">{(db.products || []).length} lines</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+
+            {/* PRINTABLE REPORT PREVIEW POPUP MODAL */}
+            {showPrintModal && (
+              <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fadeIn">
+                <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-2xl w-full p-6 space-y-6 max-h-[90vh] overflow-y-auto">
+                  
+                  {/* Print Header */}
+                  <div className="border-b border-dashed border-gray-200 pb-4 text-center">
+                    <h2 className="text-xs font-bold text-[#1B4F72] uppercase tracking-widest">OFFICIAL REPORT SUMMARY</h2>
+                    <h1 className="text-xl font-bold text-slate-900 mt-1 capitalize">{reportFrequency} Business Performance & Operations Audit</h1>
+                    <p className="text-[11px] text-gray-400 mt-1">Generated on: {new Date().toLocaleString()} • Authorized for: CEO Executive Executive Committee</p>
+                  </div>
+
+                  {/* Printable Details */}
+                  <div className="space-y-4 text-xs font-semibold text-slate-700">
+                    <div className="bg-slate-50 p-4 rounded-xl border border-gray-150 grid grid-cols-2 gap-4">
+                      <div>
+                        <span className="text-[10px] text-gray-400 block uppercase">Period Inflows (POS sales)</span>
+                        <strong className="text-md text-emerald-600 font-bold">{store.formatMoney(totalPOSInflows)}</strong>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-gray-400 block uppercase">Period Outflows (COGS + PO + Waste + Linen)</span>
+                        <strong className="text-md text-rose-600 font-bold">{store.formatMoney(totalOperationalCosts)}</strong>
+                      </div>
+                      <div className="col-span-2 pt-2 border-t border-gray-200/50 flex justify-between">
+                        <span>Net Operating Profit / Loss:</span>
+                        <span className={`font-bold font-mono text-sm ${netOperationalProfit >= 0 ? 'text-[#1B4F72]' : 'text-red-600'}`}>
+                          {store.formatMoney(netOperationalProfit)} ({profitMarginPercent.toFixed(1)}% Yield)
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2 pt-2">
+                      <h3 className="text-[10px] font-bold text-slate-900 uppercase tracking-wider pb-1 border-b border-gray-150">Module Performance Summary</h3>
+                      
+                      <div className="flex justify-between pb-1">
+                        <span>F&B Dining (Sold Qty / COGS Value):</span>
+                        <span className="text-slate-800">{totalDishesSold} plates sold • {store.formatMoney(totalCOGS)} COGS</span>
+                      </div>
+                      <div className="flex justify-between pb-1">
+                        <span>Pool Chemistry & Water Standard:</span>
+                        <span className="text-slate-800">{chemicalHealth} (pH: {poolPh} • Chlorine: {poolChlorine})</span>
+                      </div>
+                      <div className="flex justify-between pb-1">
+                        <span>Housekeeping & Cleaning completion:</span>
+                        <span className="text-slate-800">{completedTasks.length} rooms cleaned ({cleaningCompletionRate}%)</span>
+                      </div>
+                      <div className="flex justify-between pb-1">
+                        <span>Linen Laundry processing:</span>
+                        <span className="text-slate-800">{totalLinenTowelQty} towels washed • {store.formatMoney(totalLaundryCost)} processing cost</span>
+                      </div>
+                      <div className="flex justify-between pb-1">
+                        <span>Wastage/Spoilage events loss:</span>
+                        <span className="text-rose-600">{store.formatMoney(totalWastageCost)} spoilage depletion</span>
+                      </div>
+                    </div>
+
+                    <div className="bg-amber-50 border border-amber-200 p-3 rounded-lg text-[11px] text-amber-800 font-medium">
+                      ⚠️ Confidential: This report contains strategic audit data and is intended solely for internal executive oversight. Sharing or exporting without CFO authorization is prohibited.
+                    </div>
+                  </div>
+
+                  {/* Executive Report Print Matrix */}
+                  <div className="border-t border-dashed border-gray-200 pt-4 space-y-3">
+                    <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Select Professional Report Type to Print</h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <button
+                        onClick={() => {
+                          const kp = { revenue: totalPOSInflows, costs: totalOperationalCosts, netProfit: netOperationalProfit, plates: totalDishesSold, cogs: totalCOGS, roomsCleaned: completedTasks.length, chemicalStatus: chemicalHealth, towelsWashed: totalLinenTowelQty };
+                          const html = reportFrequency === 'daily' ? getDailyReportHTML(kp) : reportFrequency === 'weekly' ? getWeeklyReportHTML(kp) : getMonthlyReportHTML(kp);
+                          launchPrintPreview(reportFrequency === 'daily' ? 'Daily Report' : reportFrequency === 'weekly' ? 'Weekly Report' : 'Monthly Report', `${reportFrequency.toUpperCase()} Operating Digest`, html);
+                          setShowPrintModal(false);
+                        }}
+                        className="px-3 py-2 bg-slate-900 hover:bg-black text-white rounded-xl text-xs font-bold text-left cursor-pointer flex items-center justify-between transition"
+                      >
+                        <span>📊 Current Period ({reportFrequency})</span>
+                        <Printer className="h-3.5 w-3.5" />
+                      </button>
+                      
+                      <button
+                        onClick={() => {
+                          const kp = { revenue: totalPOSInflows, costs: totalOperationalCosts, netProfit: netOperationalProfit, plates: totalDishesSold, cogs: totalCOGS, roomsCleaned: completedTasks.length, chemicalStatus: chemicalHealth, towelsWashed: totalLinenTowelQty };
+                          const html = getAnnualReportHTML(kp);
+                          launchPrintPreview('Annual Report', 'Annual Performance Digest', html);
+                          setShowPrintModal(false);
+                        }}
+                        className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold text-left cursor-pointer flex items-center justify-between transition"
+                      >
+                        <span>📈 Annual Summary</span>
+                        <Printer className="h-3.5 w-3.5" />
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          const kp = { revenue: totalPOSInflows, cogs: totalCOGS, payroll: totalOperationalCosts * 0.4, purchases: totalPOCost, wastage: totalWastageCost, laundry: totalLaundryCost };
+                          const html = getProfitLossStatementHTML(kp);
+                          launchPrintPreview('Profit & Loss Statement', 'Corporate Profit & Loss Statement', html);
+                          setShowPrintModal(false);
+                        }}
+                        className="px-3 py-2 bg-[#1B4F72] hover:bg-[#153E5B] text-white rounded-xl text-xs font-bold text-left cursor-pointer flex items-center justify-between transition"
+                      >
+                        <span>🧾 Profit & Loss (P&L)</span>
+                        <Printer className="h-3.5 w-3.5" />
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          const assetsVal = totalPOSInflows + totalStorehouseValue;
+                          const liabilitiesVal = totalPOCost + totalLaundryCost + totalWastageCost;
+                          const equityVal = assetsVal - liabilitiesVal;
+                          const html = getBalanceSheetHTML(assetsVal, liabilitiesVal, equityVal);
+                          launchPrintPreview('Balance Sheet', 'Corporate Balance Sheet', html);
+                          setShowPrintModal(false);
+                        }}
+                        className="px-3 py-2 bg-[#1B4F72] hover:bg-[#153E5B] text-white rounded-xl text-xs font-bold text-left cursor-pointer flex items-center justify-between transition"
+                      >
+                        <span>🏛️ Balance Sheet</span>
+                        <Printer className="h-3.5 w-3.5" />
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          const html = getCashFlowStatementHTML(netOperationalProfit);
+                          launchPrintPreview('Cash Flow Statement', 'Corporate Cash Flow Statement', html);
+                          setShowPrintModal(false);
+                        }}
+                        className="px-3 py-2 bg-[#1B4F72] hover:bg-[#153E5B] text-white rounded-xl text-xs font-bold text-left cursor-pointer flex items-center justify-between transition"
+                      >
+                        <span>💸 Cash Flow Statement</span>
+                        <Printer className="h-3.5 w-3.5" />
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          const html = getInventoryReportHTML(db.products);
+                          launchPrintPreview('Inventory Report', 'Master Stock & Inventory Report', html);
+                          setShowPrintModal(false);
+                        }}
+                        className="px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 rounded-xl text-xs font-bold text-left cursor-pointer flex items-center justify-between transition"
+                      >
+                        <span>📦 Inventory & Stock Report</span>
+                        <Printer className="h-3.5 w-3.5" />
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          const activeSales = db.restaurantOrders.filter(o => o.status === 'Completed' || o.status === 'Paid');
+                          const html = getSalesReportHTML(activeSales, totalPOSInflows);
+                          launchPrintPreview('Sales Report', 'Restaurant & POS Sales Report', html);
+                          setShowPrintModal(false);
+                        }}
+                        className="px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 rounded-xl text-xs font-bold text-left cursor-pointer flex items-center justify-between transition"
+                      >
+                        <span>🍕 POS Sales & Dishes Report</span>
+                        <Printer className="h-3.5 w-3.5" />
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          const html = getAuditReportHTML(db.auditLogs || []);
+                          launchPrintPreview('Audit Report', 'Security & General System Audit Trail', html);
+                          setShowPrintModal(false);
+                        }}
+                        className="px-3 py-2 bg-amber-50 hover:bg-amber-100 text-amber-800 rounded-xl text-xs font-bold text-left cursor-pointer flex items-center justify-between transition"
+                      >
+                        <span>🔐 Security & System Audit Trail</span>
+                        <Printer className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Print footer buttons */}
+                  <div className="pt-4 border-t border-gray-100 flex justify-end">
+                    <button
+                      onClick={() => setShowPrintModal(false)}
+                      className="px-5 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl text-xs cursor-pointer transition"
+                    >
+                      Close Window
+                    </button>
+                  </div>
+
+                </div>
+              </div>
+            )}
+
+          </div>
+        );
+      })()}
 
     </div>
   );

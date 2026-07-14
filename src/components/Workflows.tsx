@@ -46,7 +46,10 @@ import {
   Check,
   X,
   CreditCard,
-  ChefHat
+  ChefHat,
+  Trash2,
+  ShoppingBag,
+  AlertTriangle
 } from 'lucide-react';
 
 interface UnifiedWorkflow {
@@ -65,12 +68,30 @@ interface UnifiedWorkflow {
 
 export default function Workflows() {
   const [db, setDb] = useState(store.getDb());
-  const [activeSubTab, setActiveSubTab] = useState<'workflows' | 'profitability'>('workflows');
+  const [activeSubTab, setActiveSubTab] = useState<'workflows' | 'profitability' | 'operations_console'>('workflows');
 
   // Workflows search/filter states
   const [deptFilter, setDeptFilter] = useState<string>('All');
   const [statusFilter, setStatusFilter] = useState<'All' | 'Pending' | 'Finished'>('All');
   const [workflowSearch, setWorkflowSearch] = useState<string>('');
+
+  // Operations Console & Manual Override States
+  const [controlMode, setControlMode] = useState<'Automatic' | 'Manual'>(() => {
+    return (localStorage.getItem('hotel_os_ops_control_mode') as 'Automatic' | 'Manual') || 'Automatic';
+  });
+  const [consoleDeptFilter, setConsoleDeptFilter] = useState<string>('All');
+
+  // Wastage / Loss logging states
+  const [wasteProductId, setWasteProductId] = useState<string>('');
+  const [wasteQty, setWasteQty] = useState<number>(1);
+  const [wasteType, setWasteType] = useState<string>('Spoilage');
+  const [wasteNotes, setWasteNotes] = useState<string>('');
+  const [wasteSuccessMsg, setWasteSuccessMsg] = useState<string>('');
+
+  // Save control mode preference
+  React.useEffect(() => {
+    localStorage.setItem('hotel_os_ops_control_mode', controlMode);
+  }, [controlMode]);
 
   // Profitability states
   const [profitSearch, setProfitSearch] = useState<string>('');
@@ -250,6 +271,50 @@ export default function Workflows() {
       });
     });
 
+    // 9. Swimming Pool Chemistry Alert & Monitoring
+    let poolPh = 7.4;
+    let poolChlorine = 2.2;
+    let poolTemp = 27.2;
+    try {
+      const phVal = localStorage.getItem('pool_ph');
+      const clVal = localStorage.getItem('pool_chlorine');
+      const tempVal = localStorage.getItem('pool_temp');
+      if (phVal) poolPh = parseFloat(phVal);
+      if (clVal) poolChlorine = parseFloat(clVal);
+      if (tempVal) poolTemp = parseFloat(tempVal);
+    } catch (e) {}
+
+    const hasPoolAlert = poolPh < 7.2 || poolPh > 7.6 || poolChlorine < 1.0 || poolChlorine > 3.0;
+    list.push({
+      id: 'pool_chem_status',
+      originType: 'Maintenance',
+      department: 'Swimming Pool Operations',
+      title: hasPoolAlert ? '🚨 CRITICAL: Pool Chemistry Disbalance Detected' : '🟢 Pool Chemistry Normal',
+      subtitle: `pH: ${poolPh} (Target: 7.2 - 7.6) • Chlorine: ${poolChlorine} ppm (Target: 1.0 - 3.0 ppm) • Temp: ${poolTemp}°C`,
+      status: hasPoolAlert ? 'Action Required' : 'Normal',
+      isFinished: !hasPoolAlert,
+      createdAt: new Date().toISOString(),
+      priority: hasPoolAlert ? 'High' : 'Low',
+      rawObject: { ph: poolPh, chlorine: poolChlorine, temp: poolTemp }
+    });
+
+    // 10. Swimming Pool Linen / Towel Laundry
+    (db.laundryItems || []).forEach((lItem: any) => {
+      const isFin = lItem.status === 'Completed' || lItem.status === 'Delivered';
+      list.push({
+        id: lItem.id,
+        originType: 'CleaningTask',
+        department: 'Swimming Pool Linen Stock',
+        title: `Pool Towel Laundry: ${lItem.quantity}x ${lItem.itemType}`,
+        subtitle: `Queued at: ${new Date(lItem.createdAt).toLocaleTimeString()} • Status: ${lItem.status}`,
+        status: lItem.status,
+        isFinished: isFin,
+        createdAt: lItem.createdAt,
+        priority: 'Medium',
+        rawObject: lItem
+      });
+    });
+
     // Sort by created date descending
     return list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }, [db]);
@@ -260,12 +325,13 @@ export default function Workflows() {
       // 1. Department filter
       if (deptFilter !== 'All') {
         if (deptFilter === 'FrontDesk' && wf.originType !== 'Reservation') return false;
-        if (deptFilter === 'Housekeeping' && wf.originType !== 'CleaningTask') return false;
-        if (deptFilter === 'Maintenance' && wf.originType !== 'Maintenance') return false;
+        if (deptFilter === 'Housekeeping' && wf.originType !== 'CleaningTask' && wf.department !== 'Swimming Pool Linen Stock') return false;
+        if (deptFilter === 'Maintenance' && wf.originType !== 'Maintenance' && wf.department !== 'Swimming Pool Operations') return false;
         if (deptFilter === 'Procurement' && wf.originType !== 'PurchaseRequest' && wf.originType !== 'PurchaseOrder') return false;
         if (deptFilter === 'Dining' && wf.originType !== 'RestaurantOrder') return false;
         if (deptFilter === 'HR' && wf.originType !== 'Payroll') return false;
         if (deptFilter === 'Audit' && wf.originType !== 'ShiftReport') return false;
+        if (deptFilter === 'Pool' && wf.department !== 'Swimming Pool Operations' && wf.department !== 'Swimming Pool Linen Stock') return false;
       }
 
       // 2. Status filter
@@ -421,6 +487,105 @@ export default function Workflows() {
     });
   }, [profitabilityList, profitCategoryFilter, profitSearch, profitSortKey, profitSortDesc]);
 
+  // Operations Console specific financial computations
+  const opsAuditSummary = useMemo(() => {
+    // 1. Total PO Outflow cost (actual procurement cash outflows)
+    const receivedPOs = (db.purchaseOrders || []).filter(po => po.status === 'Received');
+    const totalPOCost = receivedPOs.reduce((sum, po) => sum + po.totalAmount, 0);
+
+    // 2. POS Sales Inflows (total money earned)
+    const totalPOSInflows = (db.restaurantOrders || [])
+      .filter(ord => ord.status === 'Paid' || ord.status === 'Completed')
+      .reduce((sum, ord) => sum + ord.total, 0);
+
+    // 3. Spoilage, Wastage & Complimentary Loss Outflows
+    const wastageMovements = (db.inventoryMovements || []).filter(mov => {
+      const isOut = mov.type === 'Out';
+      const isNotPOS = !mov.notes?.includes('POS Order Settle') && !mov.notes?.includes('POS Sale');
+      return isOut && isNotPOS;
+    });
+
+    const totalWastageCost = wastageMovements.reduce((sum, mov) => {
+      const prod = db.products?.find(p => p.id === mov.productId);
+      const cost = prod ? prod.unitPrice : 0;
+      return sum + (mov.quantity * cost);
+    }, 0);
+
+    // 4. Theoretical Cost of Goods Sold (COGS)
+    let totalTheoreticalCOGS = 0;
+    (db.menuItems || []).forEach(item => {
+      const qtySold = menuItemSalesCounts[item.id] || 0;
+      const linkedProduct = item.productId ? db.products?.find(p => p.id === item.productId) : null;
+      const unitCost = linkedProduct ? linkedProduct.unitPrice : 0;
+      totalTheoreticalCOGS += qtySold * unitCost;
+    });
+
+    // 5. Net Profit / Variance indicator
+    const operationalProfit = totalPOSInflows - totalTheoreticalCOGS - totalWastageCost;
+
+    return {
+      totalPOCost,
+      totalPOSInflows,
+      totalWastageCost,
+      totalTheoreticalCOGS,
+      operationalProfit,
+      wastageCount: wastageMovements.length
+    };
+  }, [db.purchaseOrders, db.restaurantOrders, db.inventoryMovements, db.products, db.menuItems, menuItemSalesCounts]);
+
+  const inventoryLedger = useMemo(() => {
+    return (db.products || []).map(prod => {
+      // 1. Goods In via Received POs
+      let purchasedQty = 0;
+      (db.purchaseOrders || []).forEach(po => {
+        if (po.status === 'Received') {
+          po.items.forEach(it => {
+            if (it.productId === prod.id) {
+              purchasedQty += it.quantity;
+            }
+          });
+        }
+      });
+      const totalPurchaseCost = purchasedQty * prod.unitPrice;
+
+      // 2. Goods Out via Dining Sales
+      let soldQty = 0;
+      (db.menuItems || []).forEach(item => {
+        if (item.productId === prod.id) {
+          const qtySold = menuItemSalesCounts[item.id] || 0;
+          soldQty += qtySold;
+        }
+      });
+      const totalCOGSValue = soldQty * prod.unitPrice;
+
+      // 3. Goods Out via Wastage/Spoilage/Internal Consumption
+      let wastedQty = 0;
+      (db.inventoryMovements || []).forEach(mov => {
+        if (mov.productId === prod.id && mov.type === 'Out') {
+          if (!mov.notes?.includes('POS Order Settle') && !mov.notes?.includes('POS Sale')) {
+            wastedQty += mov.quantity;
+          }
+        }
+      });
+      const totalWastedCost = wastedQty * prod.unitPrice;
+
+      // 4. Current Stock Valuation
+      const currentStockValue = prod.currentStock * prod.unitPrice;
+
+      return {
+        product: prod,
+        purchasedQty,
+        totalPurchaseCost,
+        soldQty,
+        totalCOGSValue,
+        wastedQty,
+        totalWastedCost,
+        currentStock: prod.currentStock,
+        currentStockValue
+      };
+    });
+  }, [db.products, db.purchaseOrders, db.menuItems, db.inventoryMovements, menuItemSalesCounts]);
+
   // ============================================================================
   // WORKFLOW ACTION HANDLERS
   // ============================================================================
@@ -504,16 +669,16 @@ export default function Workflows() {
     store.addAuditLog(
       'POS Price Repriced',
       'Workflows',
-      `"${selectedSimItem.name}" selling price recalculated from $${selectedSimItem.price.toFixed(2)} to $${newPrice.toFixed(2)} (Inventory cost-based optimization)`
+      `"${selectedSimItem.name}" selling price recalculated from ${store.formatMoney(selectedSimItem.price)} to ${store.formatMoney(newPrice)} (Inventory cost-based optimization)`
     );
 
     store.addNotification(
       'Menu Price Adjusted',
-      `"${selectedSimItem.name}" re-priced to $${newPrice.toFixed(2)} based on procurement inflows and outflows analysis.`,
+      `"${selectedSimItem.name}" re-priced to ${store.formatMoney(newPrice)} based on procurement inflows and outflows analysis.`,
       'approval'
     );
 
-    setPricingSuccessMsg(`✓ successfully saved! "${selectedSimItem.name}" price updated to $${newPrice.toFixed(2)}. This change is live instantly in Cashier POS & Digital Menu boards.`);
+    setPricingSuccessMsg(`✓ successfully saved! "${selectedSimItem.name}" price updated to ${store.formatMoney(newPrice)}. This change is live instantly in Cashier POS & Digital Menu boards.`);
     setDb(store.getDb());
 
     // Auto clear success message
@@ -521,6 +686,109 @@ export default function Workflows() {
       setSelectedSimItem(null);
       setPricingSuccessMsg('');
     }, 4000);
+  };
+
+  // Operations Console manual trigger handlers
+  const triggerCheckIn = (resId: string) => {
+    store.performCheckIn(resId);
+    setDb(store.getDb());
+    store.addNotification('Operator Override', `Reservation ${resId} Checked In manually by Manual Operator.`, 'approval');
+  };
+
+  const triggerCheckOut = (resId: string) => {
+    store.performCheckOut(resId, 'Cash');
+    setDb(store.getDb());
+    store.addNotification('Operator Override', `Reservation ${resId} Checked Out manually by Manual Operator.`, 'approval');
+  };
+
+  const triggerCancelReservation = (resId: string) => {
+    const res = db.reservations.find(r => r.id === resId);
+    if (res) {
+      store.saveReservation({ ...res, status: 'Cancelled' });
+      setDb(store.getDb());
+      store.addNotification('Operator Override', `Reservation ${resId} Cancelled manually by Manual Operator.`, 'approval');
+    }
+  };
+
+  const triggerOrderStatus = (orderId: string, status: OrderStatus) => {
+    store.updateOrderStatus(orderId, status);
+    setDb(store.getDb());
+    store.addNotification('Operator Override', `Restaurant Order ${orderId} status set to "${status}" manually.`, 'approval');
+  };
+
+  const triggerCleaningStatus = (taskId: string, status: CleaningTask['status']) => {
+    store.updateCleaningTaskStatus(taskId, status);
+    setDb(store.getDb());
+    store.addNotification('Operator Override', `Housekeeping Task ${taskId} status set to "${status}" manually.`, 'approval');
+  };
+
+  const triggerPurchaseRequestStatus = (reqId: string, status: 'Approved' | 'Rejected') => {
+    store.updatePurchaseRequestStatus(reqId, status);
+    setDb(store.getDb());
+    store.addNotification('Operator Override', `Purchase Request ${reqId} set to "${status}" manually.`, 'approval');
+  };
+
+  const triggerPOStatus = (poId: string, status: PurchaseOrderStatus) => {
+    const po = db.purchaseOrders?.find(p => p.id === poId);
+    if (po) {
+      const originalStatus = po.status;
+      po.status = status;
+      if (status === 'Received' && originalStatus !== 'Received') {
+        po.receivedDate = new Date().toISOString();
+        po.items.forEach(it => {
+          if (it.productId) {
+            store.addInventoryMovement(it.productId, it.quantity, 'In', `PO Goods Received Override: PO #${poId}`);
+          }
+        });
+      }
+      store.saveToStorage();
+      setDb(store.getDb());
+      store.addNotification('Operator Override', `Purchase Order ${poId} set to "${status}" manually.`, 'approval');
+    }
+  };
+
+  const triggerMaintenanceStatus = (reqId: string, status: any) => {
+    store.updateMaintenanceStatus(reqId, status, 'Manually advanced by Operations Controller.');
+    setDb(store.getDb());
+    store.addNotification('Operator Override', `Maintenance Request ${reqId} set to "${status}" manually.`, 'approval');
+  };
+
+  const triggerShiftReportStatus = (reportId: string, status: string) => {
+    store.updateShiftReportStatus(reportId, status as any, 'Operations switchboard manual override');
+    setDb(store.getDb());
+    store.addNotification('Operator Override', `Shift report ${reportId} was manually approved.`, 'approval');
+  };
+
+  const triggerPaySalary = (payrollId: string) => {
+    store.paySalary(payrollId);
+    setDb(store.getDb());
+    store.addNotification('Operator Override', `Payroll record ${payrollId} was manually paid.`, 'approval');
+  };
+
+  const handleLogManualWastage = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!wasteProductId || wasteQty <= 0) {
+      setWasteSuccessMsg('❌ Please select a product and specify quantity > 0');
+      return;
+    }
+    const prod = db.products?.find(p => p.id === wasteProductId);
+    if (!prod) return;
+
+    store.addInventoryMovement(
+      wasteProductId,
+      wasteQty,
+      'Out',
+      `Manual Operations Console Log [${wasteType}]: ${wasteNotes || 'No notes provided'}`
+    );
+
+    setWasteSuccessMsg(`✓ Successfully logged ${wasteQty} ${prod.unit} of "${prod.name}" as ${wasteType}. Current stock updated.`);
+    setWasteQty(1);
+    setWasteNotes('');
+    setDb(store.getDb());
+
+    setTimeout(() => {
+      setWasteSuccessMsg('');
+    }, 4500);
   };
 
   return (
@@ -558,6 +826,16 @@ export default function Workflows() {
             }`}
           >
             <TrendingUp className="h-4 w-4 text-[#E67E22]" /> Pricing & Profitability
+          </button>
+          <button
+            onClick={() => setActiveSubTab('operations_console')}
+            className={`px-4 py-2 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+              activeSubTab === 'operations_console'
+                ? 'bg-white dark:bg-gray-600 text-gray-800 dark:text-white shadow-sm border border-gray-150 dark:border-gray-500'
+                : 'text-gray-400 hover:text-gray-600 dark:text-gray-300 dark:hover:text-white'
+            }`}
+          >
+            <Sparkles className="h-4 w-4 text-emerald-500" /> Operations Console (Manual Operator)
           </button>
         </div>
       </div>
@@ -612,7 +890,7 @@ export default function Workflows() {
               </div>
             </div>
           </>
-        ) : (
+        ) : activeSubTab === 'profitability' ? (
           <>
             <div className="bg-white dark:bg-gray-800 p-5 rounded-2xl border border-gray-150 dark:border-gray-700 shadow-sm flex items-center space-x-4">
               <div className="p-3.5 bg-green-50 dark:bg-green-950/20 text-green-600 dark:text-green-400 rounded-xl">
@@ -658,6 +936,54 @@ export default function Workflows() {
               </div>
             </div>
           </>
+        ) : (
+          <>
+            <div className="bg-white dark:bg-gray-800 p-5 rounded-2xl border border-gray-150 dark:border-gray-700 shadow-sm flex items-center space-x-4">
+              <div className="p-3.5 bg-green-50 dark:bg-green-950/20 text-green-600 dark:text-green-400 rounded-xl">
+                <TrendingUp className="h-6 w-6" />
+              </div>
+              <div>
+                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block">Dining Revenue (Inflows)</span>
+                <span className="text-2xl font-bold font-mono text-emerald-600 dark:text-emerald-400">{store.formatMoney(opsAuditSummary.totalPOSInflows)}</span>
+                <span className="text-[10px] text-gray-400 block mt-0.5">Closed POS ticket cash receipts</span>
+              </div>
+            </div>
+
+            <div className="bg-white dark:bg-gray-800 p-5 rounded-2xl border border-gray-150 dark:border-gray-700 shadow-sm flex items-center space-x-4">
+              <div className="p-3.5 bg-rose-50 dark:bg-rose-950/20 text-[#C0392B] rounded-xl">
+                <TrendingDown className="h-6 w-6" />
+              </div>
+              <div>
+                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block">Procurement PO Spent</span>
+                <span className="text-2xl font-bold font-mono text-rose-600 dark:text-rose-400">{store.formatMoney(opsAuditSummary.totalPOCost)}</span>
+                <span className="text-[10px] text-gray-400 block mt-0.5">Total received purchase costs</span>
+              </div>
+            </div>
+
+            <div className="bg-white dark:bg-gray-800 p-5 rounded-2xl border border-gray-150 dark:border-gray-700 shadow-sm flex items-center space-x-4">
+              <div className="p-3.5 bg-orange-50 dark:bg-orange-950/20 text-[#D35400] rounded-xl">
+                <Trash2 className="h-6 w-6" />
+              </div>
+              <div>
+                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block">Wastage / spoilage Loss</span>
+                <span className="text-2xl font-bold font-mono text-orange-600 dark:text-orange-400">{store.formatMoney(opsAuditSummary.totalWastageCost)}</span>
+                <span className="text-[10px] text-gray-400 block mt-0.5">{opsAuditSummary.wastageCount} logged waste events</span>
+              </div>
+            </div>
+
+            <div className="bg-white dark:bg-gray-800 p-5 rounded-2xl border border-gray-150 dark:border-gray-700 shadow-sm flex items-center space-x-4">
+              <div className="p-3.5 bg-indigo-50 dark:bg-indigo-950/20 text-indigo-600 dark:text-indigo-400 rounded-xl">
+                <DollarSign className="h-6 w-6" />
+              </div>
+              <div>
+                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block">Net Operations Yield</span>
+                <span className={`text-2xl font-bold font-mono ${opsAuditSummary.operationalProfit >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                  {store.formatMoney(opsAuditSummary.operationalProfit)}
+                </span>
+                <span className="text-[10px] text-gray-400 block mt-0.5">Revenue minus COGS & losses</span>
+              </div>
+            </div>
+          </>
         )}
       </div>
 
@@ -695,6 +1021,7 @@ export default function Workflows() {
                   <option value="Dining">Dining POS</option>
                   <option value="HR">HR & Payroll</option>
                   <option value="Audit">Operations Audit</option>
+                  <option value="Pool">Swimming Pool & Linen</option>
                 </select>
               </div>
 
@@ -873,7 +1200,7 @@ export default function Workflows() {
             </table>
           </div>
         </div>
-      ) : (
+      ) : activeSubTab === 'profitability' ? (
         /* PROFITABILITY MODULE VIEW */
         <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-150 dark:border-gray-700 shadow-sm space-y-6">
           <div className="flex items-center justify-between gap-4 flex-wrap pb-4 border-b border-gray-100 dark:border-gray-700/50 font-sans">
@@ -1047,6 +1374,581 @@ export default function Workflows() {
               </tbody>
             </table>
           </div>
+        </div>
+      ) : (
+        /* OPERATIONS CONSOLE VIEW */
+        <div className="space-y-6">
+          {(() => {
+            const activeUser = store.getActiveUser();
+            const isManualOperator = activeUser?.role === 'Manual Operator';
+
+            return (
+              <div className="space-y-6">
+                {/* OPERATIONAL MODE & SECURITY BOARD */}
+                <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-150 dark:border-gray-700 shadow-sm space-y-4">
+                  <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-gray-100 dark:border-gray-700/50">
+                    <div>
+                      <h3 className="text-sm font-bold text-gray-800 dark:text-white flex items-center gap-1.5 uppercase">
+                        <Sparkles className="h-4 w-4 text-emerald-500" /> Core Operational Override Console
+                      </h3>
+                      <p className="text-xs text-gray-400 dark:text-gray-400 mt-1">
+                        System clearance terminal for Manual Operators. Take complete control of workflows and review precise flow values.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-gray-400 font-bold uppercase tracking-wider">Orchestration Mode:</span>
+                      <div className="inline-flex bg-gray-100 dark:bg-gray-700/60 p-0.5 rounded-lg border border-gray-200 dark:border-gray-600">
+                        <button
+                          onClick={() => setControlMode('Automatic')}
+                          className={`px-3 py-1 text-[10px] font-bold rounded-md transition cursor-pointer ${
+                            controlMode === 'Automatic'
+                              ? 'bg-white dark:bg-gray-600 text-gray-800 dark:text-white shadow-xs'
+                              : 'text-gray-400 hover:text-gray-600 dark:text-gray-300 dark:hover:text-white'
+                          }`}
+                        >
+                          Autonomous
+                        </button>
+                        <button
+                          onClick={() => setControlMode('Manual')}
+                          className={`px-3 py-1 text-[10px] font-bold rounded-md transition cursor-pointer ${
+                            controlMode === 'Manual'
+                              ? 'bg-[#E67E22] text-white shadow-xs'
+                              : 'text-gray-400 hover:text-gray-600 dark:text-gray-300 dark:hover:text-white'
+                          }`}
+                        >
+                          Manual Control
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* ACTIVE ROLE BANNER */}
+                  <div className={`p-4 rounded-xl border ${
+                    isManualOperator
+                      ? 'bg-emerald-50/50 dark:bg-emerald-950/10 border-emerald-150 dark:border-emerald-900/30 text-emerald-800 dark:text-emerald-400'
+                      : 'bg-amber-50/50 dark:bg-amber-950/10 border-amber-150 dark:border-amber-900/30 text-amber-800 dark:text-amber-400'
+                  } flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4`}>
+                    <div className="flex items-center gap-3">
+                      <div className={`p-2.5 rounded-lg ${isManualOperator ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-600' : 'bg-amber-100 dark:bg-amber-950 text-amber-650'}`}>
+                        <Users className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <p className="text-xs font-bold uppercase tracking-wide">
+                          {isManualOperator ? '✓ Manual Operator Session Active' : '⚠ Limited Operator Clearance'}
+                        </p>
+                        <p className="text-xs text-gray-500 dark:text-gray-300 mt-0.5">
+                          Logged In As: <strong className="font-mono">{activeUser?.name || 'Guest'}</strong> ({activeUser?.role || 'No Role'})
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2 items-center w-full sm:w-auto">
+                      {!isManualOperator && (
+                        <button
+                          onClick={() => {
+                            store.login('operator', 'operator123');
+                            setDb(store.getDb());
+                          }}
+                          className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg cursor-pointer transition shadow-xs"
+                        >
+                          Simulate 'Manual Operator' Role
+                        </button>
+                      )}
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] text-gray-400 dark:text-gray-400 uppercase font-bold tracking-wider">Fast-Switch:</span>
+                        <select
+                          className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-[11px] px-2 py-1 focus:outline-none font-bold"
+                          value={activeUser?.username || ''}
+                          onChange={(e) => {
+                            const defaultPasswords: { [u: string]: string } = {
+                              admin: 'admin123',
+                              ceo: 'ceo123',
+                              manager: 'manager123',
+                              recep: 'recep123',
+                              cashier: 'cash123',
+                              waiter: 'wait123',
+                              hk: 'hk123',
+                              operator: 'operator123'
+                            };
+                            const val = e.target.value;
+                            if (val) {
+                              store.login(val, defaultPasswords[val] || 'admin123');
+                              setDb(store.getDb());
+                            }
+                          }}
+                        >
+                          <option value="operator">Alex Vance (Manual Operator)</option>
+                          <option value="admin">Jonathan Pierce (Super Admin)</option>
+                          <option value="ceo">Alena Voronova (CEO)</option>
+                          <option value="manager">Devon Carter (Manager)</option>
+                          <option value="recep">Chloe Sterling (Receptionist)</option>
+                          <option value="cashier">Marcus Brody (Cashier)</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* MAIN OPERATIONS INTERACTIVE SWITCHBOARD BOARD */}
+                <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+                  {/* LEFT COLUMN: ACTIVE SUBSYSTEM OVERRIDES */}
+                  <div className="xl:col-span-2 bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-150 dark:border-gray-700 shadow-sm space-y-6">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-gray-100 dark:border-gray-700/50">
+                      <div>
+                        <h3 className="text-sm font-bold text-gray-800 dark:text-white uppercase flex items-center gap-1.5">
+                          <GitPullRequest className="h-4 w-4 text-[#1B4F72] dark:text-blue-300" /> Department Flow Switchboard
+                        </h3>
+                        <p className="text-xs text-gray-400 mt-0.5">
+                          Manually advance, bypass or resolve workflow steps in current hotel departments.
+                        </p>
+                      </div>
+
+                      {/* DEPARTMENT FILTERS */}
+                      <div className="flex items-center gap-1">
+                        <Filter className="h-3.5 w-3.5 text-gray-400" />
+                        <select
+                          value={consoleDeptFilter}
+                          onChange={(e) => setConsoleDeptFilter(e.target.value)}
+                          className="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 text-[11px] font-bold rounded-lg px-2.5 py-1.5 focus:outline-none text-gray-700 dark:text-gray-200"
+                        >
+                          <option value="All">All Departments</option>
+                          <option value="Front Desk Reception">Front Desk Reception</option>
+                          <option value="Food & Dining POS">Food & Dining POS</option>
+                          <option value="Housekeeping Department">Housekeeping Department</option>
+                          <option value="Procurement Department">Procurement Department</option>
+                          <option value="Maintenance & Engineering">Maintenance & Engineering</option>
+                          <option value="HR & Finance Department">HR & Finance Department</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* SWITCHBOARD TASKS DECK LIST */}
+                    <div className="space-y-3.5">
+                      {(() => {
+                        const activeWorkflows = unifiedWorkflows.filter(wf => {
+                          if (consoleDeptFilter !== 'All' && wf.department !== consoleDeptFilter) return false;
+                          return !wf.isFinished; // only active flows
+                        });
+
+                        if (activeWorkflows.length === 0) {
+                          return (
+                            <div className="p-8 text-center bg-gray-50 dark:bg-gray-900/40 rounded-xl border border-dashed border-gray-200 dark:border-gray-700">
+                              <p className="text-xs text-gray-400 dark:text-gray-400 italic">No pending/active workflows found for the selected department filter.</p>
+                            </div>
+                          );
+                        }
+
+                        return activeWorkflows.map(wf => {
+                          return (
+                            <div key={wf.id} className="p-4 bg-slate-50 dark:bg-gray-955/30 rounded-xl border border-gray-150 dark:border-gray-700 hover:border-indigo-150 dark:hover:border-indigo-900/40 transition space-y-3 text-xs">
+                              <div className="flex justify-between items-start gap-4">
+                                <div>
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span className="text-[10px] bg-slate-100 dark:bg-gray-800 text-gray-500 px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">
+                                      {wf.department}
+                                    </span>
+                                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase ${
+                                      wf.status === 'Booked' || wf.status === 'Scheduled' || wf.status === 'Pending' || wf.status === 'Pending Payment' || wf.status === 'Placed'
+                                        ? 'bg-blue-50 dark:bg-blue-950/20 text-blue-600 dark:text-blue-400 border border-blue-100 dark:border-blue-900/30'
+                                        : 'bg-amber-50 dark:bg-amber-950/20 text-amber-600 dark:text-amber-400 border border-amber-150 dark:border-amber-900/30'
+                                    }`}>
+                                      Status: {wf.status}
+                                    </span>
+                                    {wf.priority && (
+                                      <span className={`text-[9px] font-bold px-1 rounded uppercase ${
+                                        wf.priority === 'High' ? 'bg-rose-100 dark:bg-rose-950/40 text-rose-600' : 'bg-gray-100 dark:bg-gray-800 text-gray-500'
+                                      }`}>
+                                        {wf.priority} Priority
+                                      </span>
+                                    )}
+                                  </div>
+                                  <h4 className="font-bold text-gray-700 dark:text-white mt-1.5">{wf.title}</h4>
+                                  <p className="text-gray-400 dark:text-gray-400 mt-0.5 text-[11px] leading-relaxed">{wf.subtitle}</p>
+                                </div>
+                                <span className="font-mono text-[9px] text-gray-400 dark:text-gray-500 uppercase">ID: {wf.id.substring(0, 8)}</span>
+                              </div>
+
+                              {/* CONTROL OVERRIDE BUTTONS BAR */}
+                              <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-gray-150 dark:border-gray-750/60">
+                                <span className="text-[10px] text-gray-400 italic font-medium">
+                                  {controlMode === 'Manual'
+                                    ? '🚨 Manual Override required to advance status.'
+                                    : '✓ Orchestration running automatically.'}
+                                </span>
+                                
+                                <div className="flex items-center gap-1.5">
+                                  {/* CONDITIONAL ACTION TRIGGERS */}
+                                  {wf.originType === 'Reservation' && (
+                                    <>
+                                      {wf.status === 'Booked' && (
+                                        <button
+                                          onClick={() => triggerCheckIn(wf.id)}
+                                          className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold rounded cursor-pointer transition shadow-xs"
+                                        >
+                                          Manual Check-In
+                                        </button>
+                                      )}
+                                      {wf.status === 'Checked In' && (
+                                        <button
+                                          onClick={() => triggerCheckOut(wf.id)}
+                                          className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold rounded cursor-pointer transition shadow-xs"
+                                        >
+                                          Manual Check-Out
+                                        </button>
+                                      )}
+                                      <button
+                                        onClick={() => triggerCancelReservation(wf.id)}
+                                        className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/20 dark:hover:bg-rose-900/30 text-rose-600 border border-rose-100 dark:border-rose-900/50 text-[10px] font-bold rounded cursor-pointer transition"
+                                      >
+                                        Cancel Booking
+                                      </button>
+                                    </>
+                                  )}
+
+                                  {wf.originType === 'RestaurantOrder' && (
+                                    <>
+                                      {wf.status === 'Placed' && (
+                                        <button
+                                          onClick={() => triggerOrderStatus(wf.id, 'Preparing')}
+                                          className="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-white text-[10px] font-bold rounded cursor-pointer transition shadow-xs"
+                                        >
+                                          Start preparing (Kitchen)
+                                        </button>
+                                      )}
+                                      {wf.status === 'Preparing' && (
+                                        <button
+                                          onClick={() => triggerOrderStatus(wf.id, 'Ready')}
+                                          className="px-2.5 py-1 bg-blue-500 hover:bg-blue-600 text-white text-[10px] font-bold rounded cursor-pointer transition shadow-xs"
+                                        >
+                                          Mark Ready
+                                        </button>
+                                      )}
+                                      {wf.status === 'Ready' && (
+                                        <button
+                                          onClick={() => triggerOrderStatus(wf.id, 'Completed')}
+                                          className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold rounded cursor-pointer transition shadow-xs"
+                                        >
+                                          Deliver Order
+                                        </button>
+                                      )}
+                                      {wf.status !== 'Paid' && (
+                                        <button
+                                          onClick={() => triggerOrderStatus(wf.id, 'Paid')}
+                                          className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/20 dark:hover:bg-indigo-900/30 text-indigo-600 border border-indigo-150 text-[10px] font-bold rounded cursor-pointer transition"
+                                        >
+                                          Settle POS Paid
+                                        </button>
+                                      )}
+                                    </>
+                                  )}
+
+                                  {wf.originType === 'CleaningTask' && (
+                                    <>
+                                      {wf.status === 'Pending' && (
+                                        <button
+                                          onClick={() => triggerCleaningStatus(wf.id, 'In Progress')}
+                                          className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold rounded cursor-pointer transition shadow-xs"
+                                        >
+                                          Assign & Start
+                                        </button>
+                                      )}
+                                      {wf.status === 'In Progress' && (
+                                        <button
+                                          onClick={() => triggerCleaningStatus(wf.id, 'Completed')}
+                                          className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold rounded cursor-pointer transition shadow-xs"
+                                        >
+                                          Mark Cleaned
+                                        </button>
+                                      )}
+                                      {wf.status === 'Completed' && (
+                                        <button
+                                          onClick={() => triggerCleaningStatus(wf.id, 'Inspected')}
+                                          className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-bold rounded cursor-pointer transition shadow-xs"
+                                        >
+                                          Approve Inspection
+                                        </button>
+                                      )}
+                                    </>
+                                  )}
+
+                                  {wf.originType === 'PurchaseRequest' && (
+                                    <>
+                                      {wf.status === 'Pending' && (
+                                        <div className="flex gap-1">
+                                          <button
+                                            onClick={() => triggerPurchaseRequestStatus(wf.id, 'Approved')}
+                                            className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold rounded cursor-pointer transition shadow-xs"
+                                          >
+                                            Approve Request
+                                          </button>
+                                          <button
+                                            onClick={() => triggerPurchaseRequestStatus(wf.id, 'Rejected')}
+                                            className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-bold rounded cursor-pointer transition shadow-xs"
+                                          >
+                                            Reject Request
+                                          </button>
+                                        </div>
+                                      )}
+                                    </>
+                                  )}
+
+                                  {wf.originType === 'PurchaseOrder' && (
+                                    <>
+                                      {wf.status !== 'Received' && (
+                                        <button
+                                          onClick={() => triggerPOStatus(wf.id, 'Received')}
+                                          className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold rounded cursor-pointer transition shadow-xs flex items-center gap-1"
+                                        >
+                                          <Package className="h-3 w-3" /> Mark Received
+                                        </button>
+                                      )}
+                                    </>
+                                  )}
+
+                                  {wf.originType === 'Maintenance' && (
+                                    <>
+                                      {wf.status === 'Pending' && (
+                                        <button
+                                          onClick={() => triggerMaintenanceStatus(wf.id, 'In Progress')}
+                                          className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold rounded cursor-pointer transition shadow-xs"
+                                        >
+                                          Start Repairs
+                                        </button>
+                                      )}
+                                      {wf.status === 'In Progress' && (
+                                        <button
+                                          onClick={() => triggerMaintenanceStatus(wf.id, 'Resolved')}
+                                          className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold rounded cursor-pointer transition shadow-xs"
+                                        >
+                                          Mark Resolved
+                                        </button>
+                                      )}
+                                    </>
+                                  )}
+
+                                  {wf.originType === 'ShiftReport' && (
+                                    <button
+                                      onClick={() => triggerShiftReportStatus(wf.id, 'Approved By CEO')}
+                                      className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold rounded cursor-pointer transition shadow-xs"
+                                    >
+                                      Approve Report
+                                    </button>
+                                  )}
+
+                                  {wf.originType === 'Payroll' && wf.status === 'Pending Payment' && (
+                                    <button
+                                      onClick={() => triggerPaySalary(wf.id)}
+                                      className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold rounded cursor-pointer transition shadow-xs flex items-center gap-1"
+                                    >
+                                      <CreditCard className="h-3 w-3" /> Disburse
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        });
+                      })()}
+                    </div>
+                  </div>
+
+                  {/* RIGHT COLUMN: LOSS LOGGER & STOCK CONTROLS */}
+                  <div className="space-y-6 font-sans">
+                    {/* MANUAL INVENTORY LOSS LOGGER FORM */}
+                    <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-150 dark:border-gray-700 shadow-sm space-y-4">
+                      <div>
+                        <h3 className="text-sm font-bold text-gray-800 dark:text-white uppercase flex items-center gap-1.5">
+                          <Trash2 className="h-4 w-4 text-orange-500" /> Log Raw Operational Loss
+                        </h3>
+                        <p className="text-xs text-gray-400 mt-0.5">
+                          Deduct spoiled, spilled, or complimentary inventory and record operating costs.
+                        </p>
+                      </div>
+
+                      <form onSubmit={handleLogManualWastage} className="space-y-3">
+                        <div>
+                          <label className="block text-[10px] font-bold uppercase text-gray-400 mb-1">Select Ingredient / Product</label>
+                          <select
+                            className="w-full bg-slate-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 text-xs px-3 py-2 rounded-lg font-bold text-gray-800 dark:text-gray-200"
+                            value={wasteProductId}
+                            onChange={(e) => setWasteProductId(e.target.value)}
+                          >
+                            <option value="">-- Choose Product --</option>
+                            {(db.products || []).map(p => (
+                              <option key={p.id} value={p.id}>
+                                {p.name} ({p.currentStock} {p.unit} remaining)
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-[10px] font-bold uppercase text-gray-400 mb-1">Loss Quantity</label>
+                            <input
+                              type="number"
+                              min="1"
+                              className="w-full bg-slate-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 text-xs px-3 py-2 rounded-lg font-bold font-mono text-gray-850 dark:text-white"
+                              value={wasteQty}
+                              onChange={(e) => setWasteQty(parseInt(e.target.value) || 1)}
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold uppercase text-gray-400 mb-1">Loss Category</label>
+                            <select
+                              className="w-full bg-slate-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 text-xs px-3 py-2 rounded-lg font-bold text-gray-850 dark:text-white"
+                              value={wasteType}
+                              onChange={(e) => setWasteType(e.target.value)}
+                            >
+                              <option value="Spoilage">Spoilage / Expired</option>
+                              <option value="Wastage">Accidental Wastage</option>
+                              <option value="Complimentary">Complimentary Supply</option>
+                              <option value="Staff Use">Staff Consumption</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] font-bold uppercase text-gray-400 mb-1">Audit Notes / Explanatory Reason</label>
+                          <textarea
+                            rows={2}
+                            placeholder="e.g. Spilled raw salmon cuts in kitchen during shift..."
+                            className="w-full bg-slate-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 text-xs px-3 py-2 rounded-lg focus:outline-none text-gray-800 dark:text-white"
+                            value={wasteNotes}
+                            onChange={(e) => setWasteNotes(e.target.value)}
+                          />
+                        </div>
+
+                        {wasteSuccessMsg && (
+                          <div className="p-3 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/40 text-emerald-800 dark:text-emerald-400 text-[10.5px] font-bold rounded-lg leading-relaxed">
+                            {wasteSuccessMsg}
+                          </div>
+                        )}
+
+                        <button
+                          type="submit"
+                          className="w-full py-2.5 bg-[#E67E22] hover:bg-[#D35400] text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center justify-center gap-1.5 cursor-pointer"
+                        >
+                          <Trash2 className="h-4 w-4" /> Log Inventory Loss Cost
+                        </button>
+                      </form>
+                    </div>
+
+                    {/* QUICK STATS INSIGHTS CARD */}
+                    <div className="bg-white dark:bg-gray-800 p-5 rounded-2xl border border-gray-150 dark:border-gray-700 shadow-sm text-xs space-y-3 leading-relaxed">
+                      <h4 className="font-bold text-gray-800 dark:text-white uppercase flex items-center gap-1.5 text-[11px]">
+                        <AlertTriangle className="h-4 w-4 text-amber-500 animate-pulse" /> Operational Loss Insights
+                      </h4>
+                      <p className="text-gray-500 dark:text-gray-400">
+                        Divergence between purchased items (POs) and consumed items (POS Sales vs Wastage) determines hotel operational efficiency.
+                      </p>
+                      <ul className="space-y-1.5 list-disc pl-4 text-gray-500 dark:text-gray-400 font-medium">
+                        <li>High-volume procurement of ingredients like <strong className="font-semibold text-gray-700 dark:text-white">Raw Salmon Filets</strong> or <strong className="font-semibold text-gray-700 dark:text-white">Premium Ribeye Steak</strong> require tight POS alignment.</li>
+                        <li>Any stock leakage without logged cashier receipt or logged wastage will manifest directly as an <strong className="font-semibold text-gray-700 dark:text-white">unlogged stock discrepancy</strong> in the ledger below.</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+
+                {/* FULL PROCUREMENT COSTS & VALUE AUDIT LEDGER */}
+                <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-150 dark:border-gray-700 shadow-sm space-y-4 font-sans">
+                  <div>
+                    <h3 className="text-sm font-bold text-gray-800 dark:text-white uppercase flex items-center gap-1.5">
+                      <ShoppingBag className="h-4 w-4 text-[#1B4F72] dark:text-blue-300" /> Inventory Value, Purchasing Costs, & Sales Flow Ledger
+                    </h3>
+                    <p className="text-xs text-gray-400 mt-1">
+                      Comparing purchased quantities/costs directly with sales quantities/COGS and logged wastage. Identify where leaks occur.
+                    </p>
+                  </div>
+
+                  <div className="overflow-x-auto border border-gray-150 dark:border-gray-700 rounded-xl">
+                    <table className="w-full text-left border-collapse text-xs">
+                      <thead>
+                        <tr className="bg-slate-50 dark:bg-gray-900 border-b border-gray-150 dark:border-gray-700 text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+                          <th className="p-3.5">Product / Ingredient</th>
+                          <th className="p-3.5">Purchased (Goods In)</th>
+                          <th className="p-3.5">Sold (POS COGS Out)</th>
+                          <th className="p-3.5">Wastage / Lost Out</th>
+                          <th className="p-3.5">Current Stock Balance</th>
+                          <th className="p-3.5">Stock Value</th>
+                          <th className="p-3.5 text-right pr-4">Operational Discrepancy / Shrinkage</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50 text-xs font-semibold">
+                        {inventoryLedger.map(row => {
+                          // Calculate logical discrepancy:
+                          // Discrepancy = Purchased - Sold - Wasted - CurrentStock
+                          const discrepancyQty = row.purchasedQty - row.soldQty - row.wastedQty - row.currentStock;
+                          const discrepancyCost = discrepancyQty * row.product.unitPrice;
+
+                          return (
+                            <tr key={row.product.id} className="hover:bg-slate-50/50 dark:hover:bg-gray-900/20 transition text-gray-700 dark:text-gray-300">
+                              <td className="p-3.5 font-sans">
+                                <div>
+                                  <span className="font-bold text-gray-800 dark:text-white block">{row.product.name}</span>
+                                  <span className="text-[10px] text-gray-400 font-mono">Unit Cost: {store.formatMoney(row.product.unitPrice)} / {row.product.unit}</span>
+                                </div>
+                              </td>
+                              <td className="p-3.5">
+                                <div className="font-mono">
+                                  <span className="font-bold block text-gray-700 dark:text-gray-300">{row.purchasedQty} {row.product.unit}</span>
+                                  <span className="text-[10px] text-gray-400">Cost: {store.formatMoney(row.totalPurchaseCost)}</span>
+                                </div>
+                              </td>
+                              <td className="p-3.5">
+                                <div className="font-mono">
+                                  <span className="font-bold block text-gray-700 dark:text-gray-300">{row.soldQty} {row.product.unit}</span>
+                                  <span className="text-[10px] text-indigo-500">COGS: {store.formatMoney(row.totalCOGSValue)}</span>
+                                </div>
+                              </td>
+                              <td className="p-3.5">
+                                <div className="font-mono">
+                                  {row.wastedQty > 0 ? (
+                                    <>
+                                      <span className="font-bold block text-orange-600 dark:text-orange-400">{row.wastedQty} {row.product.unit}</span>
+                                      <span className="text-[10px] text-orange-400">Cost: {store.formatMoney(row.totalWastedCost)}</span>
+                                    </>
+                                  ) : (
+                                    <span className="text-gray-400 italic">0 {row.product.unit}</span>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="p-3.5">
+                                <div className="font-mono">
+                                  <span className={`font-bold block ${row.currentStock <= row.product.minStockAlert ? 'text-rose-600 font-extrabold' : 'text-gray-700 dark:text-white'}`}>
+                                    {row.currentStock} {row.product.unit}
+                                  </span>
+                                  <span className="text-[10px] text-gray-400">Alert level: {row.product.minStockAlert}</span>
+                                </div>
+                              </td>
+                              <td className="p-3.5 font-mono">
+                                <span className="font-bold text-gray-700 dark:text-gray-300 block">{store.formatMoney(row.currentStockValue)}</span>
+                              </td>
+                              <td className="p-3.5 text-right pr-4 font-mono">
+                                {discrepancyQty > 0 ? (
+                                  <div>
+                                    <span className="text-rose-600 dark:text-rose-400 font-bold block">-{discrepancyQty} {row.product.unit} Leakage</span>
+                                    <span className="text-[10px] text-rose-500 font-bold">Unaccounted Cost: {store.formatMoney(discrepancyCost)}</span>
+                                  </div>
+                                ) : discrepancyQty < 0 ? (
+                                  <div>
+                                    <span className="text-emerald-600 dark:text-emerald-400 font-bold block">+{Math.abs(discrepancyQty)} {row.product.unit} Excess</span>
+                                    <span className="text-[10px] text-emerald-500">Val: {store.formatMoney(Math.abs(discrepancyCost))}</span>
+                                  </div>
+                                ) : (
+                                  <span className="text-emerald-600 dark:text-emerald-400 font-bold block">✓ Perfectly Reconciled</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
         </div>
       )}
 
@@ -1255,7 +2157,7 @@ export default function Workflows() {
                             </span>
                           </div>
                         ) : (
-                          <p className="text-gray-400 dark:text-gray-500 italic">No direct raw material linked. Operating cost is calculated at $0.00.</p>
+                          <p className="text-gray-400 dark:text-gray-500 italic">No direct raw material linked. Operating cost is calculated at {store.formatMoney(0)}.</p>
                         )}
                       </div>
 
@@ -1301,7 +2203,7 @@ export default function Workflows() {
                             value={simPriceInput}
                             onChange={(e) => setSimPriceInput(e.target.value)}
                           />
-                          <span className="absolute left-3 top-2 text-gray-400 font-bold">$</span>
+                          <span className="absolute left-3 top-2 text-gray-400 font-bold">{store.getCurrencySymbol()}</span>
                         </div>
                       </div>
 

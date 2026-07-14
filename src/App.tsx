@@ -16,6 +16,8 @@ import HousekeepingMaintenance from './components/HousekeepingMaintenance';
 import SettingsComponent from './components/Settings';
 import ShiftReporting from './components/ShiftReporting';
 import Workflows from './components/Workflows';
+import SwimmingPoolConsole from './components/SwimmingPoolConsole';
+import PrinterStation from './components/PrinterStation';
 
 import {
   Building,
@@ -36,7 +38,9 @@ import {
   Lock,
   RefreshCw,
   ClipboardList,
-  GitPullRequest
+  GitPullRequest,
+  Waves,
+  Printer
 } from 'lucide-react';
 
 export default function App() {
@@ -134,6 +138,13 @@ export default function App() {
       permission: 'view_dashboard'
     },
     {
+      id: 'pool',
+      label: 'Swimming Pool Ops',
+      icon: Waves,
+      component: SwimmingPoolConsole,
+      permission: 'view_dashboard'
+    },
+    {
       id: 'finance',
       label: 'HR & Ledger',
       icon: Sparkles,
@@ -146,6 +157,13 @@ export default function App() {
       icon: Building,
       component: HousekeepingMaintenance,
       permission: 'manage_housekeeping'
+    },
+    {
+      id: 'printing',
+      label: 'Thermal Print Station',
+      icon: Printer,
+      component: PrinterStation,
+      permission: 'manage_settings'
     },
     {
       id: 'settings',

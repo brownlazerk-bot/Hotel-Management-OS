@@ -6,6 +6,7 @@
 import React, { useState, useMemo } from 'react';
 import { store } from '../db/store';
 import { Guest, Reservation, Room, PaymentMethod, ReservationStatus } from '../types';
+import { launchPrintPreview, getCheckoutInvoiceHTML } from '../utils/printService';
 import {
   Users,
   Calendar,
@@ -627,7 +628,7 @@ export default function FrontOffice() {
                       const typeObj = db.roomTypes.find(t => t.id === rm.roomTypeId);
                       return (
                         <option key={rm.id} value={rm.id}>
-                          Room {rm.roomNumber} ({typeObj?.name} - ${typeObj?.basePrice}/night)
+                          Room {rm.roomNumber} ({typeObj?.name} - {store.formatMoney(typeObj?.basePrice || 0)}/night)
                         </option>
                       );
                     })}
@@ -670,23 +671,23 @@ export default function FrontOffice() {
                 <div className="space-y-2.5 text-xs text-gray-600">
                   <div className="flex justify-between">
                     <span>Nights Total:</span>
-                    <span className="font-semibold text-gray-800">${calculatedTotal}</span>
+                    <span className="font-semibold text-gray-800">{store.formatMoney(calculatedTotal)}</span>
                   </div>
                   <div className="flex justify-between">
                     <span>Tax Charges ({db.settings.profile.taxRate}%):</span>
                     <span className="font-semibold text-gray-800">
-                      ${Math.round(calculatedTotal * (db.settings.profile.taxRate / 100))}
+                      {store.formatMoney(Math.round(calculatedTotal * (db.settings.profile.taxRate / 100)))}
                     </span>
                   </div>
                   <div className="border-t border-gray-200 my-2 pt-2 flex justify-between text-sm font-bold text-gray-800">
                     <span>Total Amount:</span>
-                    <span>${calculatedTotal}</span>
+                    <span>{store.formatMoney(calculatedTotal)}</span>
                   </div>
                 </div>
 
                 {!isWalkIn && (
                   <div>
-                    <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Downpayment Deposit ($)</label>
+                    <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Downpayment Deposit ({store.getCurrencySymbol()})</label>
                     <input
                       type="number"
                       max={calculatedTotal}
@@ -791,9 +792,9 @@ export default function FrontOffice() {
                       {Math.ceil(Math.abs(new Date(selectedRes.checkOutDate).getTime() - new Date(selectedRes.checkInDate).getTime()) / (1000 * 60 * 60 * 24))} nights
                     </td>
                     <td className="py-3 text-right">
-                      ${db.roomTypes.find(t => t.id === db.rooms.find(r => r.id === selectedRes.roomId)?.roomTypeId)?.basePrice}
+                      {store.formatMoney(db.roomTypes.find(t => t.id === db.rooms.find(r => r.id === selectedRes.roomId)?.roomTypeId)?.basePrice || 0)}
                     </td>
-                    <td className="py-3 text-right font-bold text-gray-800">${selectedRes.totalAmount}</td>
+                    <td className="py-3 text-right font-bold text-gray-800">{store.formatMoney(selectedRes.totalAmount)}</td>
                   </tr>
                   {/* Any additional charges like restaurant tab can go here */}
                 </tbody>
@@ -804,23 +805,23 @@ export default function FrontOffice() {
                 <div className="w-64 space-y-2 text-xs text-gray-600">
                   <div className="flex justify-between">
                     <span>Subtotal Charges:</span>
-                    <span>${selectedRes.totalAmount}</span>
+                    <span>{store.formatMoney(selectedRes.totalAmount)}</span>
                   </div>
                   <div className="flex justify-between">
                     <span>Taxes Inclusive ({db.settings.profile.taxRate}%):</span>
-                    <span>${Math.round(selectedRes.totalAmount * (db.settings.profile.taxRate / 100))}</span>
+                    <span>{store.formatMoney(Math.round(selectedRes.totalAmount * (db.settings.profile.taxRate / 100)))}</span>
                   </div>
                   <div className="flex justify-between border-t border-gray-150 pt-2 font-bold text-gray-800">
                     <span>Total Amount Billed:</span>
-                    <span>${selectedRes.totalAmount}</span>
+                    <span>{store.formatMoney(selectedRes.totalAmount)}</span>
                   </div>
                   <div className="flex justify-between text-green-600 font-bold">
                     <span>Amount Paid:</span>
-                    <span>-${selectedRes.amountPaid}</span>
+                    <span>-{store.formatMoney(selectedRes.amountPaid)}</span>
                   </div>
                   <div className="flex justify-between border-t border-gray-150 pt-2 font-bold text-lg text-[#E67E22]">
                     <span>Pending Balance:</span>
-                    <span>${selectedRes.totalAmount - selectedRes.amountPaid}</span>
+                    <span>{store.formatMoney(selectedRes.totalAmount - selectedRes.amountPaid)}</span>
                   </div>
                 </div>
               </div>
@@ -834,7 +835,57 @@ export default function FrontOffice() {
             {/* Print Actions */}
             <div className="bg-gray-50 px-6 py-4 flex justify-between">
               <button
-                onClick={() => window.print()}
+                onClick={() => {
+                  try {
+                    const res = selectedRes;
+                    const guest = db.guests.find(g => g.id === res.guestId);
+                    const room = db.rooms.find(r => r.id === res.roomId);
+                    const roomType = db.roomTypes.find(t => t.id === room?.roomTypeId);
+                    const nights = Math.ceil(Math.abs(new Date(res.checkOutDate).getTime() - new Date(res.checkInDate).getTime()) / (1000 * 60 * 60 * 24)) || 1;
+                    
+                    const chargesList = [
+                      {
+                        date: res.checkInDate,
+                        description: `Room Nights Stay (${roomType?.name || 'Standard'}) - ${nights} nights at ${store.formatMoney(roomType?.basePrice || 0)}/night`,
+                        amount: res.totalAmount
+                      }
+                    ];
+
+                    const invoiceHtml = getCheckoutInvoiceHTML(guest, room, res, roomType, chargesList);
+                    launchPrintPreview('Invoice', `Checkout Folio - Room ${room?.roomNumber || 'N/A'}`, invoiceHtml);
+                    
+                    // Centralized Thermal Printer Spool Integration fallback
+                    let txt = `========================================\n`;
+                    txt += `       THE GRAND HORIZON RESORT & SPA     \n`;
+                    txt += `  TIN: ${db.settings.profile.taxNumber || 'TX-984-110A'}\n`;
+                    txt += `  Address: ${db.settings.profile.address}\n`;
+                    txt += `========================================\n`;
+                    txt += `             CHECKOUT INVOICE            \n`;
+                    txt += `========================================\n`;
+                    txt += `Guest:       ${guest?.firstName || ''} ${guest?.lastName || ''}\n`;
+                    txt += `Room Number: Room ${room?.roomNumber || 'N/A'}\n`;
+                    txt += `Room Type:   ${roomType?.name || 'Standard'}\n`;
+                    txt += `Dates:       ${res.checkInDate} to ${res.checkOutDate}\n`;
+                    txt += `Duration:    ${nights} nights\n`;
+                    txt += `----------------------------------------\n`;
+                    txt += `CHARGES SUMMARY:\n`;
+                    txt += `Room Charges:                 ${store.formatMoney(res.totalAmount)}\n`;
+                    txt += `Taxes Inclusive (${db.settings.profile.taxRate}%):         ${store.formatMoney(Math.round(res.totalAmount * (db.settings.profile.taxRate / 100)))}\n`;
+                    txt += `----------------------------------------\n`;
+                    txt += `Total Billed:                 ${store.formatMoney(res.totalAmount)}\n`;
+                    txt += `Amount Paid:                 -${store.formatMoney(res.amountPaid)}\n`;
+                    txt += `----------------------------------------\n`;
+                    txt += `Balance Due:                  ${store.formatMoney(res.totalAmount - res.amountPaid)}\n`;
+                    txt += `========================================\n`;
+                    txt += `    Have a safe journey! Visit again.   \n`;
+                    txt += `========================================\n`;
+
+                    store.addPrintJob(`Checkout Folio - Room ${room?.roomNumber || 'N/A'}`, 'Reception', 'Invoice', txt, 1);
+                    store.addNotification('Invoice Spooled', `Checkout folio printed automatically on Front Desk thermal printer.`, 'checkout');
+                  } catch (err) {
+                    console.error('Thermal invoice print job failed to spool:', err);
+                  }
+                }}
                 className="inline-flex items-center px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-bold text-xs border border-gray-300 transition cursor-pointer"
               >
                 <Printer className="h-4 w-4 mr-1.5" /> Print Invoice Receipt
@@ -884,7 +935,7 @@ export default function FrontOffice() {
                     const typeObj = db.roomTypes.find(t => t.id === rm.roomTypeId);
                     return (
                       <option key={rm.id} value={rm.id}>
-                        Room {rm.roomNumber} ({typeObj?.name} - ${typeObj?.basePrice}/night)
+                        Room {rm.roomNumber} ({typeObj?.name} - {store.formatMoney(typeObj?.basePrice || 0)}/night)
                       </option>
                     );
                   })}

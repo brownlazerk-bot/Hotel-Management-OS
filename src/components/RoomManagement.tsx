@@ -376,7 +376,7 @@ export default function RoomManagement() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Base Price / Night ($)</label>
+                  <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Base Price / Night ({store.getCurrencySymbol()})</label>
                   <input
                     type="number"
                     min={1}

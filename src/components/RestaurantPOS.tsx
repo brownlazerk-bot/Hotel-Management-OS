@@ -6,6 +6,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { store } from '../db/store';
 import { RestaurantTable, MenuItem, RestaurantOrder, OrderItem, PaymentMethod, OrderStatus, DailyShiftReport, ShiftSaleDetail } from '../types';
+import { launchPrintPreview, getCustomerReceiptHTML, getKitchenOrderTicketHTML, getBarOrderTicketHTML } from '../utils/printService';
 import {
   UtensilsCrossed,
   ChefHat,
@@ -174,6 +175,23 @@ export default function RestaurantPOS() {
   const [menuSearchQuery, setMenuSearchQuery] = useState<string>('');
   const [chefMenuSearchQuery, setChefMenuSearchQuery] = useState<string>('');
   const [showChefAvailabilityPanel, setShowChefAvailabilityPanel] = useState<boolean>(true); // let's default to open or collapsed? Let's default to open so they see it immediately, or collapsed to save space with an elegant badge. Let's make it collapsed by default but extremely obvious, or open by default and very compact. Let's make it open by default! It's very cool!
+  
+  // Kitchen Pantry & Stock Connection
+  const [kitchenPantry, setKitchenPantry] = useState<Record<string, number>>(() => {
+    try {
+      const saved = localStorage.getItem('kitchen_pantry_stock');
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
+  const [pantryPullProductId, setPantryPullProductId] = useState<string>('');
+  const [pantryPullQty, setPantryPullQty] = useState<number>(10);
+  const [kdsTypeFilter, setKdsTypeFilter] = useState<'All' | 'Food' | 'Beverage'>('All');
+
+  useEffect(() => {
+    localStorage.setItem('kitchen_pantry_stock', JSON.stringify(kitchenPantry));
+  }, [kitchenPantry]);
   
   // Create table state
   const [newTableName, setNewTableName] = useState('');
@@ -389,24 +407,78 @@ export default function RestaurantPOS() {
     txt += `QTY   ITEM NAME            PRICE     SUB\n`;
     txt += `----------------------------------------\n`;
 
+    const symbol = store.getCurrencySymbol();
     order.items.forEach(it => {
       const lineSub = (it.price * it.quantity).toFixed(2);
       const nameCol = it.name.substring(0, 18).padEnd(19);
-      txt += `${String(it.quantity).padEnd(4)} ${nameCol} $${it.price.toFixed(2).padEnd(7)} $${lineSub}\n`;
+      txt += `${String(it.quantity).padEnd(4)} ${nameCol} ${symbol}${it.price.toFixed(2).padEnd(7)} ${symbol}${lineSub}\n`;
     });
 
     txt += `----------------------------------------\n`;
-    txt += `SUBTOTAL:                    $${order.subtotal.toFixed(2)}\n`;
+    txt += `SUBTOTAL:                    ${symbol}${order.subtotal.toFixed(2)}\n`;
     if (order.discount > 0) {
-      txt += `DISCOUNT:                   -$${order.discount.toFixed(2)}\n`;
+      txt += `DISCOUNT:                   -${symbol}${order.discount.toFixed(2)}\n`;
     }
-    txt += `VAT (${db.settings.profile.taxRate}%):                     $${order.tax.toFixed(2)}\n`;
+    txt += `VAT (${db.settings.profile.taxRate}%):                     ${symbol}${order.tax.toFixed(2)}\n`;
     txt += `----------------------------------------\n`;
-    txt += `TOTAL AMOUNT DUE:            $${order.total.toFixed(2)}\n`;
+    txt += `TOTAL AMOUNT DUE:            ${symbol}${order.total.toFixed(2)}\n`;
     txt += `----------------------------------------\n`;
     txt += `PAYMENT METHOD:              ${order.paymentMethod || 'Cash'}\n`;
     txt += `========================================\n`;
     txt += `       Thank you! Please visit again!   \n`;
+    txt += `========================================\n`;
+    return txt;
+  };
+
+  const generateBOTContent = (order: RestaurantOrder, isReprint: boolean = false): string => {
+    const tableLabel = order.tableId ? (db.restaurantTables.find(t => t.id === order.tableId)?.tableNumber || 'Table Option') : 'N/A';
+    const activeUserName = store.getActiveUser()?.name || 'Marcus Brody (Cashier)';
+    const dateStr = new Date(order.createdAt).toISOString().split('T')[0];
+    const timeStr = new Date(order.createdAt).toLocaleTimeString();
+
+    const waiterObj = db.users.find(u => u.id === order.waiterId) || db.employees.find(e => e.id === order.waiterId);
+    const waiterName = waiterObj 
+      ? ('name' in waiterObj ? waiterObj.name : `${waiterObj.firstName} ${waiterObj.lastName}`) 
+      : (order.waiterId === 'usr_cashier' ? 'Marcus Brody' : order.waiterId);
+
+    const drinkItems = order.items.filter(it => isDrinkItem(it.menuItemId));
+
+    let txt = `========================================\n`;
+    txt += `       CASCADE BAR BEVERAGE TICKET       \n`;
+    if (isReprint) {
+      txt += `      *** REPRINT / DUPLICATE COPY ***   \n`;
+    }
+    txt += `========================================\n`;
+    txt += `HOTEL NAME:  ${db.settings.profile.name}\n`;
+    txt += `BOT NO:      ${order.kotNumber ? order.kotNumber.replace('KOT', 'BOT') : 'BOT-NEW'}\n`;
+    txt += `ORDER NO:    ${order.orderNumber || order.id}\n`;
+    txt += `DATE:        ${dateStr}       TIME: ${timeStr}\n`;
+    txt += `ORDER TYPE:  ${order.orderType || 'Dine In'}\n`;
+    if (order.orderType === 'Dine In') {
+      txt += `TABLE NO:    ${tableLabel}\n`;
+    } else if (order.orderType === 'Room Service') {
+      txt += `ROOM NO:     ${order.roomNumber || 'N/A'}\n`;
+    }
+    txt += `CASHIER:     ${activeUserName}\n`;
+    txt += `WAITER:      ${waiterName}\n`;
+    txt += `----------------------------------------\n`;
+    txt += `QTY   DRINK / BEVERAGE ITEM NAME\n`;
+    txt += `----------------------------------------\n`;
+    
+    if (drinkItems.length === 0) {
+      txt += `[ NO DRINK ITEMS ORDERED ]\n`;
+    } else {
+      drinkItems.forEach(it => {
+        txt += `${String(it.quantity).padEnd(5)}${it.name}\n`;
+      });
+    }
+    
+    txt += `----------------------------------------\n`;
+    if (order.specialInstructions) {
+      txt += `SPECIAL INSTRUCTIONS:\n`;
+      txt += `* ${order.specialInstructions}\n`;
+      txt += `----------------------------------------\n`;
+    }
     txt += `========================================\n`;
     return txt;
   };
@@ -439,6 +511,66 @@ export default function RestaurantPOS() {
     };
 
     setPrinterJobs(prev => [newJob, ...prev]);
+
+    // Push print jobs to the central store's queue & track reprint logs
+    if (printAsReprint) {
+      const reason = isReprint ? "POS operator manual reprint trigger" : "Automatic dual billing copy";
+      store.reprintDocument(order.orderNumber || order.id, type === 'KOT' ? 'KOT' : 'Receipt', reason, 1);
+    } else {
+      if (type === 'KOT') {
+        const containsFood = order.items.some(it => !isDrinkItem(it.menuItemId));
+        const containsDrinks = order.items.some(it => isDrinkItem(it.menuItemId));
+
+        if (containsFood) {
+          const foodOrder = {
+            ...order,
+            items: order.items.filter(it => !isDrinkItem(it.menuItemId))
+          };
+          store.addPrintJob(`KOT Food Order - #${order.orderNumber}`, 'Kitchen', 'KOT', generateKOTContent(foodOrder, false), 1);
+        }
+        if (containsDrinks) {
+          const drinkOrder = {
+            ...order,
+            items: order.items.filter(it => isDrinkItem(it.menuItemId))
+          };
+          store.addPrintJob(`BOT Drink Order - #${order.orderNumber}`, 'Bar', 'BOT', generateBOTContent(drinkOrder, false), 1);
+        }
+      } else {
+        // Customer Receipt
+        store.addPrintJob(`Receipt POS Order - #${order.orderNumber}`, 'Cashier', 'Receipt', content, 1);
+      }
+    }
+
+    // Also trigger the professional print preview window/tab
+    try {
+      if (type === 'Customer Receipt') {
+        const receiptHtml = getCustomerReceiptHTML(order, '80mm');
+        launchPrintPreview('Customer Receipt', `Customer Receipt - #${order.orderNumber || order.id}`, receiptHtml);
+      } else if (type === 'KOT') {
+        const containsFood = order.items.some(it => !isDrinkItem(it.menuItemId));
+        const containsDrinks = order.items.some(it => isDrinkItem(it.menuItemId));
+
+        if (containsFood) {
+          const foodOrder = {
+            ...order,
+            items: order.items.filter(it => !isDrinkItem(it.menuItemId))
+          };
+          const kotHtml = getKitchenOrderTicketHTML(foodOrder);
+          launchPrintPreview('KOT', `Kitchen Order Ticket - #${order.orderNumber || order.id}`, kotHtml);
+        }
+        if (containsDrinks) {
+          const drinkOrder = {
+            ...order,
+            items: order.items.filter(it => isDrinkItem(it.menuItemId))
+          };
+          const botHtml = getBarOrderTicketHTML(drinkOrder);
+          launchPrintPreview('BOT', `Bar Order Ticket - #${order.orderNumber || order.id}`, botHtml);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to trigger professional print preview:', e);
+    }
+
     setPrintToast(`${type} printed on simulated ${printerConfig} printer.`);
     
     setTimeout(() => {
@@ -730,7 +862,7 @@ export default function RestaurantPOS() {
         createdAt: new Date().toISOString()
       };
       db.sales.push(saleRecord);
-      store.addAuditLog('POS Sale Complete', 'POS', `Completed billing receipt ${order.orderNumber} for $${order.total}`);
+      store.addAuditLog('POS Sale Complete', 'POS', `Completed billing receipt ${order.orderNumber} for ${store.formatMoney(order.total)}`);
     }
 
     setPrintToast(`Status updated: ${order.orderNumber || order.id} is now ${status}`);
@@ -2032,7 +2164,7 @@ export default function RestaurantPOS() {
                             <span className="text-[10px] text-gray-400 font-medium block mt-0.5 uppercase">{item.category}</span>
                           </div>
                           <div className="flex items-center justify-between">
-                            <strong className="text-xs font-bold text-slate-800">${item.price}</strong>
+                            <strong className="text-xs font-bold text-slate-800">{store.formatMoney(item.price)}</strong>
                             {INGREDIENTS_RECIPES[item.name.toLowerCase()] ? (
                               <span className="text-[8px] bg-amber-50 text-amber-700 border px-1 rounded">Recipe</span>
                             ) : item.id.startsWith('stock_') ? (
@@ -2375,7 +2507,7 @@ export default function RestaurantPOS() {
                                         </p>
                                       </div>
                                       <div className="text-right shrink-0">
-                                        <span className="text-xs font-black text-emerald-700 block">${o.total.toFixed(2)}</span>
+                                        <span className="text-xs font-black text-emerald-700 block">{store.formatMoney(o.total)}</span>
                                         <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">Settle →</span>
                                       </div>
                                     </div>
@@ -2428,7 +2560,7 @@ export default function RestaurantPOS() {
                                     <tr key={idx} className="border-b border-gray-50 py-1 font-mono">
                                       <td className="py-1 text-slate-800 font-sans">{it.name}</td>
                                       <td className="py-1 text-center">{it.quantity}</td>
-                                      <td className="py-1 text-right">${(it.price * it.quantity).toFixed(2)}</td>
+                                      <td className="py-1 text-right">{store.formatMoney(it.price * it.quantity)}</td>
                                     </tr>
                                   ))}
                                 </tbody>
@@ -2439,21 +2571,21 @@ export default function RestaurantPOS() {
                             <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100 text-[11px] font-bold text-slate-600 space-y-1">
                               <div className="flex justify-between">
                                 <span>Subtotal:</span>
-                                <span className="font-mono">${ord.subtotal.toFixed(2)}</span>
+                                <span className="font-mono">{store.formatMoney(ord.subtotal)}</span>
                               </div>
                               {ord.discount > 0 && (
                                 <div className="flex justify-between text-rose-700">
                                   <span>Discount:</span>
-                                  <span className="font-mono">-${ord.discount.toFixed(2)}</span>
+                                  <span className="font-mono">-{store.formatMoney(ord.discount)}</span>
                                 </div>
                               )}
                               <div className="flex justify-between">
                                 <span>Tax/VAT ({db.settings.profile.taxRate}%):</span>
-                                <span className="font-mono">${ord.tax.toFixed(2)}</span>
+                                <span className="font-mono">{store.formatMoney(ord.tax)}</span>
                               </div>
                               <div className="flex justify-between text-slate-900 font-black text-xs border-t border-dashed pt-1 mt-1.5">
                                 <span>Grand Total:</span>
-                                <span className="font-mono text-emerald-700">${ord.total.toFixed(2)}</span>
+                                <span className="font-mono text-emerald-700">{store.formatMoney(ord.total)}</span>
                               </div>
                             </div>
 
@@ -2493,7 +2625,7 @@ export default function RestaurantPOS() {
                               className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs transition cursor-pointer flex justify-center items-center gap-1.5 shadow"
                             >
                               <CheckCircle className="h-4 w-4" />
-                              <span>Confirm Payment (${ord.total.toFixed(2)})</span>
+                              <span>Confirm Payment ({store.formatMoney(ord.total)})</span>
                             </button>
                           </div>
                         );
@@ -2508,11 +2640,11 @@ export default function RestaurantPOS() {
                     <div className="text-xs space-y-1 text-slate-600 font-semibold">
                       <div className="flex justify-between">
                         <span>Subtotal:</span>
-                        <span>${cartSubtotal.toFixed(2)}</span>
+                        <span>{store.formatMoney(cartSubtotal)}</span>
                       </div>
                       {cartSubtotal > 0 && (
                         <div className="flex items-center justify-between gap-2.5">
-                          <span className="text-[10px] font-bold uppercase text-slate-400">Discount ($):</span>
+                          <span className="text-[10px] font-bold uppercase text-slate-400">Discount ({store.getCurrencySymbol()}):</span>
                           <input
                             type="number"
                             min={0}
@@ -2524,11 +2656,11 @@ export default function RestaurantPOS() {
                       )}
                       <div className="flex justify-between">
                         <span>VAT ({db.settings.profile.taxRate}%):</span>
-                        <span>${cartTax.toFixed(2)}</span>
+                        <span>{store.formatMoney(cartTax)}</span>
                       </div>
                       <div className="flex justify-between text-slate-900 font-black text-sm border-t border-dashed pt-1.5">
                         <span>Total:</span>
-                        <span>${cartTotal.toFixed(2)}</span>
+                        <span>{store.formatMoney(cartTotal)}</span>
                       </div>
                     </div>
 
@@ -2572,100 +2704,283 @@ export default function RestaurantPOS() {
           {/* TAB 3: KITCHEN DISPLAY QUEUE (KDS) */}
           {activeTab === 'kitchen' && (
             <div className="space-y-6">
-              <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-gray-100 gap-3">
                 <div>
                   <h3 className="text-sm font-bold text-slate-800">Live Kitchen Display System (KDS)</h3>
                   <p className="text-xs text-slate-400">Order Status Flow: New → Pending Kitchen → Preparing → Ready → Served → Completed</p>
                 </div>
-                <div className="flex space-x-2">
-                  <span className="text-xs font-bold text-slate-500">Filters: </span>
+                <div className="flex items-center space-x-2">
                   <span className="inline-block px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-200 text-[10px] font-bold rounded-full">
                     Auto-Refreshed
+                  </span>
+                  <span className="inline-block px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold rounded-full">
+                    Integrated Stock Feed
                   </span>
                 </div>
               </div>
 
-              {/* Central Inventory-Controlled Menu Availability Status Board */}
-              <div className="bg-white border border-gray-255 rounded-2xl shadow-sm overflow-hidden transition-all duration-200">
-                <div 
-                  onClick={() => setShowChefAvailabilityPanel(!showChefAvailabilityPanel)}
-                  className="bg-slate-50 border-b border-gray-150 px-4 py-3 flex items-center justify-between cursor-pointer hover:bg-slate-100 transition"
-                >
-                  <div className="flex items-center space-x-2.5">
-                    <span className="text-lg">🧑‍🍳</span>
-                    <div>
-                      <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wide flex items-center gap-1.5">
-                        Pantry & Dish Stock Status (Inventory Controlled)
-                      </h4>
-                      <p className="text-[10px] text-slate-500 font-medium">Read-only live status feed. Stock levels and active/out of stock settings are managed by the Inventory & Procurement department.</p>
+              {/* TWO COLUMN PANEL: 1. MENU AVAILABILITY STATUS & 2. CENTRAL STORE TRANSFER PANTRY */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                
+                {/* COLUMN 1: Menu Availability (Chef-controlled, instantly impacts POS & Cashier) */}
+                <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden flex flex-col justify-between">
+                  <div>
+                    <div className="bg-slate-50 border-b border-gray-150 px-4 py-3.5 flex items-center justify-between">
+                      <div className="flex items-center space-x-2.5">
+                        <span className="text-lg">🧑‍🍳</span>
+                        <div>
+                          <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wide">
+                            Menu Availability Control
+                          </h4>
+                          <p className="text-[10px] text-slate-500 font-medium">Click any dish to instantly toggle its availability on customer POS menus.</p>
+                        </div>
+                      </div>
+                      <span className="text-[10px] font-bold bg-[#1B4F72] text-white px-2 py-0.5 rounded-full">
+                        {db.menuItems.filter(item => item.isAvailable !== false).length} Available / {db.menuItems.filter(item => item.isAvailable === false).length} Out
+                      </span>
                     </div>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <span className="text-[10px] font-bold bg-[#1B4F72] text-white px-2 py-0.5 rounded-full">
-                      {db.menuItems.filter(item => item.isAvailable !== false).length} Available / {db.menuItems.filter(item => item.isAvailable === false).length} Out
-                    </span>
-                    <span className="text-slate-400 text-[10px] font-bold uppercase tracking-wider">
-                      {showChefAvailabilityPanel ? '▼ Hide Status' : '▶ Show Status'}
-                    </span>
-                  </div>
-                </div>
 
-                {showChefAvailabilityPanel && (
-                  <div className="p-4 space-y-3.5 bg-slate-50/40 animate-fadeIn">
-                    <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-                      <div className="relative w-full sm:w-72">
+                    <div className="p-4 space-y-3 bg-white">
+                      <div className="relative">
                         <input
                           type="text"
-                          placeholder="Search dish or category..."
+                          placeholder="Quick search dishes to toggle..."
                           value={chefMenuSearchQuery}
                           onChange={(e) => setChefMenuSearchQuery(e.target.value)}
-                          className="w-full pl-8 pr-3 py-1.5 bg-white border border-gray-200 rounded-xl text-xs text-slate-855 placeholder-gray-400 focus:outline-none focus:border-[#1B4F72] font-semibold transition"
+                          className="w-full pl-8 pr-3 py-1.5 bg-gray-50 border border-gray-200 rounded-xl text-xs text-slate-800 placeholder-gray-400 focus:outline-none focus:border-[#1B4F72] font-semibold transition"
                         />
                         <span className="absolute left-2.5 top-2 text-slate-400 text-xs">🔍</span>
                       </div>
-                      <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
-                        <span className="h-1.5 w-1.5 bg-amber-500 rounded-full animate-ping" />
-                        <span>Managed via Inventory & Procurement console</span>
-                      </div>
-                    </div>
 
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2.5 max-h-56 overflow-y-auto p-1 bg-white rounded-xl border border-gray-150">
-                      {chefFilteredMenuItems.length === 0 ? (
-                        <div className="col-span-full py-6 text-center text-xs text-slate-400 font-semibold">
-                          No menu items found.
-                        </div>
-                      ) : (
-                        chefFilteredMenuItems.map(item => {
-                          const isAvail = item.isAvailable !== false;
-                          return (
-                            <div 
-                              key={item.id} 
-                              className={`p-2 rounded-xl border transition flex flex-col justify-between space-y-2 ${
-                                isAvail 
-                                  ? 'border-gray-150 bg-slate-50/10' 
-                                  : 'border-rose-150 bg-rose-50/5'
-                              }`}
-                            >
-                              <div className="min-h-[2.2rem]">
-                                <span className="text-[8px] font-bold text-slate-400 uppercase tracking-wide block">{item.category}</span>
-                                <h5 className="text-[10px] font-bold text-slate-700 line-clamp-2 leading-tight" title={item.name}>{item.name}</h5>
-                              </div>
-                              <div
-                                className={`w-full py-1 rounded-lg text-[9px] font-bold uppercase tracking-wider transition flex items-center justify-center space-x-1 border ${
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 max-h-56 overflow-y-auto p-1 bg-gray-50 rounded-xl border border-gray-150">
+                        {chefFilteredMenuItems.length === 0 ? (
+                          <div className="col-span-full py-6 text-center text-xs text-slate-400 font-semibold">
+                            No menu items found.
+                          </div>
+                        ) : (
+                          chefFilteredMenuItems.map(item => {
+                            const isAvail = item.isAvailable !== false;
+                            return (
+                              <div 
+                                key={item.id} 
+                                className={`p-2 rounded-xl border transition flex flex-col justify-between space-y-2 ${
                                   isAvail 
-                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-100' 
-                                    : 'bg-rose-50 text-rose-700 border-rose-100'
+                                    ? 'border-gray-150 bg-white' 
+                                    : 'border-rose-150 bg-rose-50/5'
                                 }`}
                               >
-                                <span>{isAvail ? '🟢 Available' : '🔴 Out of Stock'}</span>
+                                <div className="min-h-[2.2rem]">
+                                  <span className="text-[8px] font-bold text-slate-400 uppercase tracking-wide block">{item.category}</span>
+                                  <h5 className="text-[10px] font-bold text-slate-700 line-clamp-2 leading-tight" title={item.name}>{item.name}</h5>
+                                </div>
+                                
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const updatedItem = { ...item, isAvailable: !isAvail };
+                                    store.saveMenuItem(updatedItem);
+                                    
+                                    // Send central system wide notification
+                                    store.addNotification(
+                                      'Menu Stock Alert',
+                                      `Kitchen team changed "${item.name}" availability to ${!isAvail ? '🟢 AVAILABLE' : '🔴 OUT OF STOCK'}.`,
+                                      'maintenance'
+                                    );
+                                    
+                                    setPrintToast(`Availability Toggled: ${item.name} is now ${!isAvail ? 'Available' : 'Out of Stock'}`);
+                                  }}
+                                  className={`w-full py-1 rounded-lg text-[9px] font-bold uppercase tracking-wider transition flex items-center justify-center space-x-1 border cursor-pointer ${
+                                    isAvail 
+                                      ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-100' 
+                                      : 'bg-rose-50 text-rose-700 hover:bg-rose-100 border-rose-100'
+                                  }`}
+                                >
+                                  <span>{isAvail ? '🟢 Available' : '🔴 Out of Stock'}</span>
+                                </button>
                               </div>
-                            </div>
-                          );
-                        })
-                      )}
+                            );
+                          })
+                        )}
+                      </div>
                     </div>
                   </div>
-                )}
+                  <div className="px-4 py-2 bg-slate-50 border-t text-[10px] font-medium text-slate-400 italic">
+                    💡 If a dish is "Out of Stock" here, it is instantly locked and hidden in the Front Desk or Dining POS.
+                  </div>
+                </div>
+
+                {/* COLUMN 2: Kitchen Pantry Inventory (Store-to-Kitchen product transfer) */}
+                <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden flex flex-col justify-between">
+                  <div>
+                    <div className="bg-slate-50 border-b border-gray-150 px-4 py-3.5 flex items-center justify-between">
+                      <div className="flex items-center space-x-2.5">
+                        <span className="text-lg">📦</span>
+                        <div>
+                          <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wide">
+                            Kitchen Local Pantry Inventory
+                          </h4>
+                          <p className="text-[10px] text-slate-500 font-medium">Pull raw ingredients and beverages from the hotel storehouse directly to the kitchen.</p>
+                        </div>
+                      </div>
+                      <span className="text-[10px] font-bold bg-amber-500 text-slate-950 px-2.5 py-0.5 rounded-full">
+                        {Object.values(kitchenPantry).filter((v: any) => v > 0).length} Items Stocked
+                      </span>
+                    </div>
+
+                    <div className="p-4 space-y-4">
+                      {/* Pull Form */}
+                      <form 
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          if (!pantryPullProductId) {
+                            alert('Please select a product to transfer.');
+                            return;
+                          }
+                          const prod = db.products.find(p => p.id === pantryPullProductId);
+                          if (!prod) return;
+                          
+                          if (prod.currentStock < pantryPullQty) {
+                            alert(`Notice: Requested transfer amount (${pantryPullQty}) exceeds central warehouse stock (${prod.currentStock}). This will deplete warehouse levels.`);
+                          }
+
+                          // Deduct central warehouse
+                          store.addInventoryMovement(
+                            pantryPullProductId,
+                            pantryPullQty,
+                            'Out',
+                            `Storehouse to Kitchen Pantry transfer: ${prod.name}`
+                          );
+
+                          // Increment local kitchen pantry
+                          setKitchenPantry(prev => ({
+                            ...prev,
+                            [pantryPullProductId]: (prev[pantryPullProductId] || 0) + pantryPullQty
+                          }));
+
+                          store.addNotification(
+                            'Kitchen Pantry Refill',
+                            `Chef transferred ${pantryPullQty}x "${prod.name}" from central hotel storehouse to kitchen pantry.`,
+                            'maintenance'
+                          );
+
+                          setPrintToast(`Transferred ${pantryPullQty}x ${prod.name} successfully!`);
+                        }}
+                        className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 bg-slate-50 p-3 rounded-xl border border-slate-150"
+                      >
+                        <div className="sm:col-span-1">
+                          <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-1">Select Ingredient / Drink</label>
+                          <select
+                            value={pantryPullProductId}
+                            onChange={(e) => setPantryPullProductId(e.target.value)}
+                            className="w-full px-2 py-1.5 bg-white border border-gray-200 rounded-lg text-xs font-semibold focus:outline-none focus:border-amber-500 cursor-pointer"
+                          >
+                            <option value="">-- Choose Product --</option>
+                            {db.products.filter(p => p.category === 'Food' || p.category === 'Beverage').map(prod => (
+                              <option key={prod.id} value={prod.id}>
+                                🍎 {prod.name} (Warehouse: {prod.currentStock} {prod.unit || 'units'})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-1">Transfer Qty</label>
+                          <input
+                            type="number"
+                            min="1"
+                            value={pantryPullQty}
+                            onChange={(e) => setPantryPullQty(Math.max(1, parseInt(e.target.value) || 1))}
+                            className="w-full px-2 py-1.5 bg-white border border-gray-200 rounded-lg text-xs font-semibold focus:outline-none focus:border-amber-500"
+                          />
+                        </div>
+
+                        <div className="flex flex-col justify-end">
+                          <button
+                            type="submit"
+                            className="w-full py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-lg text-xs cursor-pointer transition text-center shadow-sm"
+                          >
+                            Pull to Kitchen
+                          </button>
+                        </div>
+                      </form>
+
+                      {/* Pantry stock listings with manual decrementor */}
+                      <div className="max-h-36 overflow-y-auto border border-gray-150 rounded-xl">
+                        <table className="w-full text-left text-xs border-collapse">
+                          <thead>
+                            <tr className="bg-slate-50 border-b border-gray-150 text-[9px] text-slate-400 font-bold uppercase tracking-wider">
+                              <th className="p-2">Ingredient Name</th>
+                              <th className="p-2 text-center">Warehouse Stock</th>
+                              <th className="p-2 text-center text-indigo-700">Kitchen Pantry Stock</th>
+                              <th className="p-2 text-right">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-100">
+                            {db.products.filter(p => p.category === 'Food' || p.category === 'Beverage').map(prod => {
+                              const localQty = kitchenPantry[prod.id] || 0;
+                              return (
+                                <tr key={prod.id} className="hover:bg-slate-50/50">
+                                  <td className="p-2 font-medium text-slate-700 text-[11px]">{prod.name}</td>
+                                  <td className="p-2 text-center font-mono text-[10px] text-slate-400">{prod.currentStock} {prod.unit || 'units'}</td>
+                                  <td className="p-2 text-center font-mono text-xs font-bold text-indigo-600">{localQty}</td>
+                                  <td className="p-2 text-right">
+                                    <button
+                                      type="button"
+                                      disabled={localQty <= 0}
+                                      onClick={() => {
+                                        setKitchenPantry(prev => ({
+                                          ...prev,
+                                          [prod.id]: Math.max(0, localQty - 1)
+                                        }));
+                                        setPrintToast(`Cooking recipe used 1 unit of ${prod.name}`);
+                                      }}
+                                      className="px-2 py-0.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-[10px] font-bold rounded border border-gray-200 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed transition"
+                                      title="Click when you use this raw ingredient in cooking a recipe item"
+                                    >
+                                      Use 1
+                                    </button>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="px-4 py-2 bg-slate-50 border-t text-[10px] font-medium text-slate-400 italic">
+                    📦 Relational: Transferring ingredients decrements the Central Storehouse warehouse ledger.
+                  </div>
+                </div>
+
+              </div>
+
+              {/* SEGREGATED KITCHEN WORKFLOW FILTERS */}
+              <div className="bg-white p-4 rounded-2xl border border-gray-150 flex flex-wrap items-center justify-between gap-4">
+                <div className="flex items-center space-x-2.5">
+                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Queue Routing Line:</span>
+                  <div className="inline-flex rounded-xl p-1 bg-slate-100">
+                    {(['All', 'Food', 'Beverage'] as const).map(fType => (
+                      <button
+                        key={fType}
+                        type="button"
+                        onClick={() => setKdsTypeFilter(fType)}
+                        className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                          kdsTypeFilter === fType
+                            ? 'bg-slate-900 text-white shadow-xs'
+                            : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
+                        }`}
+                      >
+                        {fType === 'All' ? '🍽️ Combined' : fType === 'Food' ? '🍖 Kitchen (Food Only)' : '🍹 Bar / Beverage Only'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="text-[11px] text-slate-400 font-medium">
+                  {kdsTypeFilter === 'Food' ? 'Filtering: Displaying only kitchen-prepared food order tickets.' :
+                   kdsTypeFilter === 'Beverage' ? 'Filtering: Displaying only beverage/bar order tickets.' :
+                   'Combined Mode: Displaying full meals with drinks.'}
+                </div>
               </div>
 
               {/* Grid Column Categories matching standard flow */}
@@ -2676,11 +2991,25 @@ export default function RestaurantPOS() {
                   <div className="bg-amber-100 border border-amber-200 text-amber-800 px-3 py-1.5 rounded-xl font-bold text-xs flex items-center justify-between shadow-sm">
                     <span>1. NEW / UNASSIGNED</span>
                     <span className="bg-amber-200 text-amber-900 px-1.5 py-0.5 rounded text-[10px]">
-                      {db.restaurantOrders.filter(o => o.status === 'New' || o.status === 'Pending').length}
+                      {db.restaurantOrders.filter(o => {
+                        const statusMatch = o.status === 'New' || o.status === 'Pending';
+                        if (!statusMatch) return false;
+                        if (kdsTypeFilter === 'All') return true;
+                        if (kdsTypeFilter === 'Food') return o.items.some(it => !isDrinkItem(it.menuItemId));
+                        if (kdsTypeFilter === 'Beverage') return o.items.some(it => isDrinkItem(it.menuItemId));
+                        return true;
+                      }).length}
                     </span>
                   </div>
                   <div className="space-y-3 max-h-[500px] overflow-y-auto">
-                    {db.restaurantOrders.filter(o => o.status === 'New' || o.status === 'Pending').map(order => (
+                    {db.restaurantOrders.filter(o => {
+                      const statusMatch = o.status === 'New' || o.status === 'Pending';
+                      if (!statusMatch) return false;
+                      if (kdsTypeFilter === 'All') return true;
+                      if (kdsTypeFilter === 'Food') return o.items.some(it => !isDrinkItem(it.menuItemId));
+                      if (kdsTypeFilter === 'Beverage') return o.items.some(it => isDrinkItem(it.menuItemId));
+                      return true;
+                    }).map(order => (
                       <KDSOrderCard 
                         key={order.id} 
                         order={order} 
@@ -2701,11 +3030,25 @@ export default function RestaurantPOS() {
                   <div className="bg-sky-100 border border-sky-200 text-sky-800 px-3 py-1.5 rounded-xl font-bold text-xs flex items-center justify-between shadow-sm">
                     <span>2. PENDING KITCHEN</span>
                     <span className="bg-sky-200 text-sky-900 px-1.5 py-0.5 rounded text-[10px]">
-                      {db.restaurantOrders.filter(o => o.status === 'Pending Kitchen' || o.status === 'In Kitchen').length}
+                      {db.restaurantOrders.filter(o => {
+                        const statusMatch = o.status === 'Pending Kitchen' || o.status === 'In Kitchen';
+                        if (!statusMatch) return false;
+                        if (kdsTypeFilter === 'All') return true;
+                        if (kdsTypeFilter === 'Food') return o.items.some(it => !isDrinkItem(it.menuItemId));
+                        if (kdsTypeFilter === 'Beverage') return o.items.some(it => isDrinkItem(it.menuItemId));
+                        return true;
+                      }).length}
                     </span>
                   </div>
                   <div className="space-y-3 max-h-[500px] overflow-y-auto">
-                    {db.restaurantOrders.filter(o => o.status === 'Pending Kitchen' || o.status === 'In Kitchen').map(order => (
+                    {db.restaurantOrders.filter(o => {
+                      const statusMatch = o.status === 'Pending Kitchen' || o.status === 'In Kitchen';
+                      if (!statusMatch) return false;
+                      if (kdsTypeFilter === 'All') return true;
+                      if (kdsTypeFilter === 'Food') return o.items.some(it => !isDrinkItem(it.menuItemId));
+                      if (kdsTypeFilter === 'Beverage') return o.items.some(it => isDrinkItem(it.menuItemId));
+                      return true;
+                    }).map(order => (
                       <KDSOrderCard 
                         key={order.id} 
                         order={order} 
@@ -2726,11 +3069,25 @@ export default function RestaurantPOS() {
                   <div className="bg-indigo-100 border border-indigo-200 text-indigo-800 px-3 py-1.5 rounded-xl font-bold text-xs flex items-center justify-between shadow-sm">
                     <span>3. PREPARING (LINE)</span>
                     <span className="bg-indigo-200 text-indigo-900 px-1.5 py-0.5 rounded text-[10px]">
-                      {db.restaurantOrders.filter(o => o.status === 'Preparing').length}
+                      {db.restaurantOrders.filter(o => {
+                        const statusMatch = o.status === 'Preparing';
+                        if (!statusMatch) return false;
+                        if (kdsTypeFilter === 'All') return true;
+                        if (kdsTypeFilter === 'Food') return o.items.some(it => !isDrinkItem(it.menuItemId));
+                        if (kdsTypeFilter === 'Beverage') return o.items.some(it => isDrinkItem(it.menuItemId));
+                        return true;
+                      }).length}
                     </span>
                   </div>
                   <div className="space-y-3 max-h-[500px] overflow-y-auto">
-                    {db.restaurantOrders.filter(o => o.status === 'Preparing').map(order => (
+                    {db.restaurantOrders.filter(o => {
+                      const statusMatch = o.status === 'Preparing';
+                      if (!statusMatch) return false;
+                      if (kdsTypeFilter === 'All') return true;
+                      if (kdsTypeFilter === 'Food') return o.items.some(it => !isDrinkItem(it.menuItemId));
+                      if (kdsTypeFilter === 'Beverage') return o.items.some(it => isDrinkItem(it.menuItemId));
+                      return true;
+                    }).map(order => (
                       <KDSOrderCard 
                         key={order.id} 
                         order={order} 
@@ -2751,11 +3108,25 @@ export default function RestaurantPOS() {
                   <div className="bg-emerald-100 border border-emerald-200 text-emerald-800 px-3 py-1.5 rounded-xl font-bold text-xs flex items-center justify-between shadow-sm">
                     <span>4. FOOD READY 🔔</span>
                     <span className="bg-emerald-200 text-emerald-900 px-1.5 py-0.5 rounded text-[10px]">
-                      {db.restaurantOrders.filter(o => o.status === 'Ready').length}
+                      {db.restaurantOrders.filter(o => {
+                        const statusMatch = o.status === 'Ready';
+                        if (!statusMatch) return false;
+                        if (kdsTypeFilter === 'All') return true;
+                        if (kdsTypeFilter === 'Food') return o.items.some(it => !isDrinkItem(it.menuItemId));
+                        if (kdsTypeFilter === 'Beverage') return o.items.some(it => isDrinkItem(it.menuItemId));
+                        return true;
+                      }).length}
                     </span>
                   </div>
                   <div className="space-y-3 max-h-[500px] overflow-y-auto">
-                    {db.restaurantOrders.filter(o => o.status === 'Ready').map(order => (
+                    {db.restaurantOrders.filter(o => {
+                      const statusMatch = o.status === 'Ready';
+                      if (!statusMatch) return false;
+                      if (kdsTypeFilter === 'All') return true;
+                      if (kdsTypeFilter === 'Food') return o.items.some(it => !isDrinkItem(it.menuItemId));
+                      if (kdsTypeFilter === 'Beverage') return o.items.some(it => isDrinkItem(it.menuItemId));
+                      return true;
+                    }).map(order => (
                       <KDSOrderCard 
                         key={order.id} 
                         order={order} 
@@ -2776,11 +3147,25 @@ export default function RestaurantPOS() {
                   <div className="bg-slate-100 border border-slate-200 text-slate-800 px-3 py-1.5 rounded-xl font-bold text-xs flex items-center justify-between shadow-sm">
                     <span>5. SERVED / COMPLETE</span>
                     <span className="bg-slate-200 text-slate-900 px-1.5 py-0.5 rounded text-[10px]">
-                      {db.restaurantOrders.filter(o => o.status === 'Served' || o.status === 'Completed' || o.status === 'Paid').length}
+                      {db.restaurantOrders.filter(o => {
+                        const statusMatch = o.status === 'Served' || o.status === 'Completed' || o.status === 'Paid';
+                        if (!statusMatch) return false;
+                        if (kdsTypeFilter === 'All') return true;
+                        if (kdsTypeFilter === 'Food') return o.items.some(it => !isDrinkItem(it.menuItemId));
+                        if (kdsTypeFilter === 'Beverage') return o.items.some(it => isDrinkItem(it.menuItemId));
+                        return true;
+                      }).length}
                     </span>
                   </div>
                   <div className="space-y-3 max-h-[500px] overflow-y-auto">
-                    {db.restaurantOrders.filter(o => o.status === 'Served' || o.status === 'Completed' || o.status === 'Paid').map(order => (
+                    {db.restaurantOrders.filter(o => {
+                      const statusMatch = o.status === 'Served' || o.status === 'Completed' || o.status === 'Paid';
+                      if (!statusMatch) return false;
+                      if (kdsTypeFilter === 'All') return true;
+                      if (kdsTypeFilter === 'Food') return o.items.some(it => !isDrinkItem(it.menuItemId));
+                      if (kdsTypeFilter === 'Beverage') return o.items.some(it => isDrinkItem(it.menuItemId));
+                      return true;
+                    }).map(order => (
                       <KDSOrderCard 
                         key={order.id} 
                         order={order} 
@@ -2814,22 +3199,22 @@ export default function RestaurantPOS() {
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
                 <div className="bg-white p-4.5 rounded-2xl border shadow-sm">
                   <span className="text-[10px] text-slate-400 font-bold uppercase block">Gross Revenue</span>
-                  <span className="text-xl font-mono font-black text-slate-900 block mt-1">${reportStats.revenue.toFixed(2)}</span>
+                  <span className="text-xl font-mono font-black text-slate-900 block mt-1">{store.formatMoney(reportStats.revenue)}</span>
                   <span className="text-[9px] text-slate-400 block mt-0.5">Includes Completed food orders</span>
                 </div>
                 <div className="bg-white p-4.5 rounded-2xl border shadow-sm">
                   <span className="text-[10px] text-slate-400 font-bold uppercase block">VAT Collected ({db.settings.profile.taxRate}%)</span>
-                  <span className="text-xl font-mono font-black text-slate-900 block mt-1">${reportStats.vat.toFixed(2)}</span>
+                  <span className="text-xl font-mono font-black text-slate-900 block mt-1">{store.formatMoney(reportStats.vat)}</span>
                   <span className="text-[9px] text-slate-400 block mt-0.5">Settle checks tax collection ledger</span>
                 </div>
                 <div className="bg-white p-4.5 rounded-2xl border shadow-sm">
                   <span className="text-[10px] text-slate-400 font-bold uppercase block">Estimated Recipe Cost</span>
-                  <span className="text-xl font-mono font-black text-orange-600 block mt-1">${reportStats.cogs.toFixed(2)}</span>
+                  <span className="text-xl font-mono font-black text-orange-600 block mt-1">{store.formatMoney(reportStats.cogs)}</span>
                   <span className="text-[9px] text-slate-400 block mt-0.5">COGS ingredient base estimated</span>
                 </div>
                 <div className="bg-white p-4.5 rounded-2xl border shadow-sm">
                   <span className="text-[10px] text-slate-400 font-bold uppercase block">Net POS Profit</span>
-                  <span className="text-xl font-mono font-black text-emerald-600 block mt-1">${reportStats.netProfit.toFixed(2)}</span>
+                  <span className="text-xl font-mono font-black text-emerald-600 block mt-1">{store.formatMoney(reportStats.netProfit)}</span>
                   <span className="text-[9px] text-slate-400 block mt-0.5">Direct culinary ledger margins</span>
                 </div>
               </div>
@@ -2879,7 +3264,7 @@ export default function RestaurantPOS() {
                         <div key={seller.name} className="space-y-1">
                           <div className="flex justify-between text-xs font-semibold text-slate-700">
                             <span>{seller.name}</span>
-                            <span>{seller.count} sold (${seller.revenue.toFixed(2)})</span>
+                            <span>{seller.count} sold ({store.formatMoney(seller.revenue)})</span>
                           </div>
                           <div className="w-full bg-slate-100 rounded-full h-2">
                             <div 
@@ -2908,7 +3293,7 @@ export default function RestaurantPOS() {
                           <span className="font-bold text-xs text-slate-800 block mt-0.5">{cs.name}</span>
                           <div className="flex justify-between items-center mt-2 border-t pt-1.5 text-[11px]">
                             <span className="text-slate-500">{cs.count} Tickets Completed</span>
-                            <span className="font-bold text-[#1B4F72]">${cs.sales.toFixed(2)}</span>
+                            <span className="font-bold text-[#1B4F72]">{store.formatMoney(cs.sales)}</span>
                           </div>
                         </div>
                       ))}
@@ -2952,12 +3337,12 @@ export default function RestaurantPOS() {
                       </div>
                       <div className="p-4 bg-gray-50 rounded-2xl border border-gray-150 text-center">
                         <span className="text-[10px] font-bold text-gray-400 uppercase">Shift Revenue</span>
-                        <strong className="text-2xl font-mono block text-gray-800 mt-1">${shiftTotals.val.toFixed(2)}</strong>
+                        <strong className="text-2xl font-mono block text-gray-800 mt-1">{store.formatMoney(shiftTotals.val)}</strong>
                       </div>
                       <div className="p-4 bg-gray-50 rounded-2xl border border-gray-150 text-center">
                         <span className="text-[10px] font-bold text-gray-400 uppercase">Expected Cash Drawer</span>
-                        <strong className="text-2xl font-mono block text-green-700 mt-1">${shiftTotals.expectedCash.toFixed(2)}</strong>
-                        <span className="text-[9px] text-gray-400 font-medium block mt-0.5">(Includes $200 Starting Float)</span>
+                        <strong className="text-2xl font-mono block text-green-700 mt-1">{store.formatMoney(shiftTotals.expectedCash)}</strong>
+                        <span className="text-[9px] text-gray-400 font-medium block mt-0.5">(Includes {store.formatMoney(200)} Starting Float)</span>
                       </div>
                     </div>
                   </div>
@@ -2971,7 +3356,7 @@ export default function RestaurantPOS() {
                   
                   <form onSubmit={handleSubmitShiftReport} className="space-y-4">
                     <div>
-                      <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Counted Drawer Cash ($)</label>
+                      <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Counted Drawer Cash ({store.getCurrencySymbol()})</label>
                       <input
                         type="number"
                         required
@@ -3067,7 +3452,7 @@ export default function RestaurantPOS() {
                                   {item.category}
                                 </span>
                               </td>
-                              <td className="py-3 font-mono font-bold text-slate-900">${item.price.toFixed(2)}</td>
+                              <td className="py-3 font-mono font-bold text-slate-900">{store.formatMoney(item.price)}</td>
                               <td className="py-3">
                                 <span className={`inline-flex items-center gap-1 text-[10px] font-bold ${item.isAvailable ? 'text-green-600' : 'text-slate-400'}`}>
                                   <span className={`h-1.5 w-1.5 rounded-full ${item.isAvailable ? 'bg-green-600' : 'bg-slate-300'}`} />
@@ -3142,7 +3527,7 @@ export default function RestaurantPOS() {
                       </div>
 
                       <div>
-                        <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Price ($)</label>
+                        <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Price ({store.getCurrencySymbol()})</label>
                         <input
                           type="number"
                           required
