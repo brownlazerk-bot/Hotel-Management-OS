@@ -3,10 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { store } from '../db/store';
 import { Room, RoomType, RoomStatus } from '../types';
 import { launchPrintPreview, getRoomSelectedReportHTML } from '../utils/printService';
+import { navigate } from '../utils/router';
 import ServiceOrderModal from './ServiceOrderModal';
 import {
   Grid,
@@ -25,8 +26,15 @@ import {
   ShoppingCart
 } from 'lucide-react';
 
-export default function RoomManagement() {
-  const [activeTab, setActiveTab] = useState<'board' | 'setup' | 'types'>('board');
+export default function RoomManagement({ initialTab }: { initialTab?: 'board' | 'setup' | 'types' } = {}) {
+  const [activeTab, setActiveTab] = useState<'board' | 'setup' | 'types'>(initialTab || 'board');
+
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
+
   const db = store.getDb();
 
   // Selected filters for status board
@@ -201,7 +209,7 @@ export default function RoomManagement() {
         </div>
         <div className="flex space-x-2">
           <button
-            onClick={() => setActiveTab('board')}
+            onClick={() => navigate('/rooms')}
             className={`px-4 py-2 text-xs font-semibold rounded-xl transition duration-150 border cursor-pointer ${
               activeTab === 'board'
                 ? 'bg-[#1B4F72] text-white border-[#1B4F72] shadow-sm'
@@ -211,7 +219,7 @@ export default function RoomManagement() {
             Visual Status Grid
           </button>
           <button
-            onClick={() => setActiveTab('types')}
+            onClick={() => navigate('/room-types')}
             className={`px-4 py-2 text-xs font-semibold rounded-xl transition duration-150 border cursor-pointer ${
               activeTab === 'types'
                 ? 'bg-[#1B4F72] text-white border-[#1B4F72] shadow-sm'
@@ -221,7 +229,7 @@ export default function RoomManagement() {
             Categories & Pricing
           </button>
           <button
-            onClick={() => setActiveTab('setup')}
+            onClick={() => navigate('/rooms')}
             className={`px-4 py-2 text-xs font-semibold rounded-xl transition duration-150 border cursor-pointer ${
               activeTab === 'setup'
                 ? 'bg-[#1B4F72] text-white border-[#1B4F72] shadow-sm'

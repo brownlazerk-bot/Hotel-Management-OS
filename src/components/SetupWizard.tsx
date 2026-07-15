@@ -6,7 +6,7 @@
 import React, { useState } from 'react';
 import { store } from '../db/store';
 import { HotelOSSettings, User } from '../types';
-import { Sparkles, Building, Key, Shield, ArrowRight, ArrowLeft } from 'lucide-react';
+import { Sparkles, Building, Key, Shield, ArrowRight, ArrowLeft, FolderOpen, UploadCloud } from 'lucide-react';
 
 interface SetupWizardProps {
   onSetupComplete: () => void;
@@ -15,6 +15,7 @@ interface SetupWizardProps {
 export default function SetupWizard({ onSetupComplete }: SetupWizardProps) {
   const [step, setStep] = useState<number>(0);
   const [seedLoading, setSeedLoading] = useState<boolean>(false);
+  const [backupError, setBackupError] = useState<string>('');
 
   // Profile State
   const [profileName, setProfileName] = useState('The Grand Hotel');
@@ -37,6 +38,31 @@ export default function SetupWizard({ onSetupComplete }: SetupWizardProps) {
   const [adminPassword, setAdminPassword] = useState('admin123');
   const [adminName, setAdminName] = useState('Super Admin');
   const [adminEmail, setAdminEmail] = useState('admin@thegrandhotel.com');
+
+  const handleBackupRestore = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const text = event.target?.result as string;
+        const parsed = JSON.parse(text);
+        
+        // Basic check to see if it's a valid Hotel OS Database
+        if (parsed && typeof parsed === 'object' && parsed.settings && parsed.users) {
+          store.restoreDatabase(parsed);
+          setBackupError('');
+          onSetupComplete();
+        } else {
+          setBackupError('Invalid backup file. The JSON must contain valid "settings" and "users" tables.');
+        }
+      } catch (err) {
+        setBackupError('Failed to parse backup file. Please verify it is a valid JSON database.');
+      }
+    };
+    reader.readAsText(file);
+  };
 
   const handleSeedSandbox = () => {
     setSeedLoading(true);
@@ -111,10 +137,10 @@ export default function SetupWizard({ onSetupComplete }: SetupWizardProps) {
   if (step === 0) {
     return (
       <div className="min-h-screen bg-[#F4F6F9] dark:bg-gray-950 flex flex-col items-center justify-center p-4 transition-colors duration-150">
-        <div className="w-full max-w-5xl bg-white dark:bg-gray-900 rounded-2xl shadow-2xl border border-gray-150 dark:border-gray-800 overflow-hidden flex flex-col lg:flex-row">
+        <div className="w-full max-w-6xl bg-white dark:bg-gray-900 rounded-2xl shadow-2xl border border-gray-150 dark:border-gray-800 overflow-hidden flex flex-col lg:flex-row">
           
           {/* Brand/Hero Panel */}
-          <div className="lg:w-5/12 bg-[#1B4F72] text-white p-8 lg:p-12 flex flex-col justify-between relative overflow-hidden">
+          <div className="lg:w-4/12 bg-[#1B4F72] text-white p-8 lg:p-10 flex flex-col justify-between relative overflow-hidden">
             <div className="absolute top-0 right-0 -mt-12 -mr-12 w-64 h-64 rounded-full bg-white/5 blur-3xl pointer-events-none"></div>
             <div className="absolute bottom-0 left-0 -mb-16 -ml-16 w-80 h-80 rounded-full bg-orange-500/10 blur-3xl pointer-events-none"></div>
             
@@ -143,7 +169,7 @@ export default function SetupWizard({ onSetupComplete }: SetupWizardProps) {
           </div>
 
           {/* Action Panels */}
-          <div className="lg:w-7/12 p-8 lg:p-12 flex flex-col justify-between bg-gray-50/50 dark:bg-gray-900/50">
+          <div className="lg:w-8/12 p-8 lg:p-10 flex flex-col justify-between bg-gray-50/50 dark:bg-gray-900/50">
             <div>
               <div className="mb-6">
                 <h2 className="text-2xl font-black text-gray-800 dark:text-white tracking-tight">
@@ -155,7 +181,7 @@ export default function SetupWizard({ onSetupComplete }: SetupWizardProps) {
               </div>
 
               {/* Grid of Choices */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
                 
                 {/* Seed Sandbox Card */}
                 <div className="bg-white dark:bg-gray-800 p-5 rounded-2xl border border-orange-200 dark:border-orange-900/30 shadow-xs hover:shadow-md transition duration-200 flex flex-col justify-between space-y-4">
@@ -200,7 +226,39 @@ export default function SetupWizard({ onSetupComplete }: SetupWizardProps) {
                   </button>
                 </div>
 
+                {/* Restore Database Backup Card */}
+                <div className="bg-white dark:bg-gray-800 p-5 rounded-2xl border border-emerald-200 dark:border-emerald-900/30 shadow-xs hover:shadow-md transition duration-200 flex flex-col justify-between space-y-4">
+                  <div>
+                    <div className="inline-flex items-center justify-center p-2.5 bg-emerald-50 dark:bg-emerald-950/20 rounded-xl mb-3">
+                      <FolderOpen className="h-5 w-5 text-emerald-600" />
+                    </div>
+                    <h3 className="text-sm font-bold text-gray-800 dark:text-white">Restore Backup</h3>
+                    <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed mt-1.5">
+                      Restore and load an existing database backup JSON file exported from your settings console. This restores your custom hotel profile and users instantly.
+                    </p>
+                  </div>
+                  
+                  <div className="relative">
+                    <label className="w-full mt-2 py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition cursor-pointer flex items-center justify-center space-x-1.5 shadow-sm hover:scale-[1.02] text-center border-none">
+                      <UploadCloud className="h-3.5 w-3.5 text-white" />
+                      <span>Upload JSON Backup</span>
+                      <input
+                        type="file"
+                        accept=".json"
+                        onChange={handleBackupRestore}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+                </div>
+
               </div>
+
+              {backupError && (
+                <div className="mt-4 p-3 bg-red-50 dark:bg-red-950/20 border border-red-150 dark:border-red-900/50 rounded-xl text-xs text-red-600 dark:text-red-400 font-semibold">
+                  ⚠️ {backupError}
+                </div>
+              )}
 
               {/* Login block as option */}
               <div className="mt-6 pt-5 border-t border-gray-200/80 dark:border-gray-700">

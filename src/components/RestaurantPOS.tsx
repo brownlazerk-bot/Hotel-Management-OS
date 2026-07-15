@@ -7,6 +7,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { store } from '../db/store';
 import { RestaurantTable, MenuItem, RestaurantOrder, OrderItem, PaymentMethod, OrderStatus, DailyShiftReport, ShiftSaleDetail } from '../types';
 import { launchPrintPreview, getCustomerReceiptHTML, getKitchenOrderTicketHTML, getBarOrderTicketHTML } from '../utils/printService';
+import { navigate } from '../utils/router';
 import {
   UtensilsCrossed,
   ChefHat,
@@ -61,7 +62,7 @@ const INGREDIENTS_RECIPES: Record<string, Array<{ productId: string; name: strin
   ]
 };
 
-export default function RestaurantPOS() {
+export default function RestaurantPOS({ initialTab }: { initialTab?: 'tables' | 'terminal' | 'kitchen' | 'reports' | 'shift' | 'menu' | 'waiter_dashboard' } = {}) {
   const db = store.getDb();
   
   // Waiter Role Check
@@ -79,17 +80,24 @@ export default function RestaurantPOS() {
 
   // Determine which tab to default to based on permissions
   const defaultTab = useMemo(() => {
+    if (initialTab) return initialTab;
     if (showWaiterDashboard && currentUser?.role === 'Waiter') return 'waiter_dashboard';
     if (showTablesSeating) return 'tables';
     if (showCashierTerminal) return 'terminal';
     if (showKitchenQueue) return 'kitchen';
     return 'waiter_dashboard';
-  }, [showWaiterDashboard, showTablesSeating, showCashierTerminal, showKitchenQueue, currentUser]);
+  }, [initialTab, showWaiterDashboard, showTablesSeating, showCashierTerminal, showKitchenQueue, currentUser]);
   
   // Tabs & Simulation Roles
   const [activeTab, setActiveTab] = useState<'tables' | 'terminal' | 'kitchen' | 'reports' | 'shift' | 'menu' | 'waiter_dashboard'>(
     defaultTab
   );
+
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
 
   // Sync activeTab to permitted list if permissions change
   useEffect(() => {
@@ -1417,7 +1425,7 @@ export default function RestaurantPOS() {
         <div className="flex space-x-1.5 flex-wrap gap-y-1.5">
           {showWaiterDashboard && (
             <button
-              onClick={() => setActiveTab('waiter_dashboard')}
+              onClick={() => navigate('/restaurant')}
               className={`px-4 py-2 text-xs font-bold rounded-xl transition duration-150 border cursor-pointer flex items-center space-x-1.5 ${
                 activeTab === 'waiter_dashboard'
                   ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
@@ -1431,7 +1439,7 @@ export default function RestaurantPOS() {
 
           {showTablesSeating && (
             <button
-              onClick={() => setActiveTab('tables')}
+              onClick={() => navigate('/table-management')}
               className={`px-4 py-2 text-xs font-bold rounded-xl transition duration-150 border cursor-pointer flex items-center space-x-1.5 ${
                 activeTab === 'tables'
                   ? 'bg-[#1B4F72] text-white border-[#1B4F72] shadow-sm'
@@ -1447,7 +1455,7 @@ export default function RestaurantPOS() {
             <button
               onClick={() => {
                 setEditingOrderId(null);
-                setActiveTab('terminal');
+                navigate('/pos');
               }}
               className={`px-4 py-2 text-xs font-bold rounded-xl transition duration-150 border cursor-pointer flex items-center space-x-1.5 ${
                 activeTab === 'terminal'
@@ -1462,7 +1470,7 @@ export default function RestaurantPOS() {
 
           {showKitchenQueue && (
             <button
-              onClick={() => setActiveTab('kitchen')}
+              onClick={() => navigate('/kitchen-display')}
               className={`px-4 py-2 text-xs font-bold rounded-xl transition duration-150 border cursor-pointer flex items-center space-x-1.5 ${
                 activeTab === 'kitchen'
                   ? 'bg-[#1B4F72] text-white border-[#1B4F72] shadow-sm'
@@ -1476,7 +1484,7 @@ export default function RestaurantPOS() {
 
           {showReports && (
             <button
-              onClick={() => setActiveTab('reports')}
+              onClick={() => navigate('/restaurant')}
               className={`px-4 py-2 text-xs font-bold rounded-xl transition duration-150 border cursor-pointer flex items-center space-x-1.5 ${
                 activeTab === 'reports'
                   ? 'bg-[#1B4F72] text-white border-[#1B4F72] shadow-sm'
@@ -1490,7 +1498,7 @@ export default function RestaurantPOS() {
 
           {showShift && (
             <button
-              onClick={() => setActiveTab('shift')}
+              onClick={() => navigate('/restaurant')}
               className={`px-4 py-2 text-xs font-bold rounded-xl transition duration-150 border cursor-pointer flex items-center space-x-1.5 ${
                 activeTab === 'shift'
                   ? 'bg-[#1B4F72] text-white border-[#1B4F72] shadow-sm'
@@ -1504,7 +1512,7 @@ export default function RestaurantPOS() {
 
           {showMenuCatalog && (
             <button
-              onClick={() => setActiveTab('menu')}
+              onClick={() => navigate('/menu')}
               className={`px-4 py-2 text-xs font-bold rounded-xl transition duration-150 border cursor-pointer flex items-center space-x-1.5 ${
                 activeTab === 'menu'
                   ? 'bg-[#1B4F72] text-white border-[#1B4F72] shadow-sm'

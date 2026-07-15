@@ -3,9 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { store } from '../db/store';
 import { CleaningTask, LaundryItem, LostAndFound, MaintenanceRequest } from '../types';
+import { navigate } from '../utils/router';
 import {
   Sparkles,
   ClipboardList,
@@ -20,8 +21,15 @@ import {
   HeartHandshake
 } from 'lucide-react';
 
-export default function HousekeepingMaintenance() {
-  const [activeTab, setActiveTab] = useState<'housekeeping' | 'laundry' | 'lost_found' | 'maintenance'>('housekeeping');
+export default function HousekeepingMaintenance({ initialTab }: { initialTab?: 'housekeeping' | 'laundry' | 'lost_found' | 'maintenance' } = {}) {
+  const [activeTab, setActiveTab] = useState<'housekeeping' | 'laundry' | 'lost_found' | 'maintenance'>(initialTab || 'housekeeping');
+
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
+
   const db = store.getDb();
 
   // Housekeeping filtering
@@ -157,7 +165,7 @@ export default function HousekeepingMaintenance() {
         </div>
         <div className="flex space-x-2">
           <button
-            onClick={() => setActiveTab('housekeeping')}
+            onClick={() => navigate('/housekeeping')}
             className={`px-4 py-2 text-xs font-semibold rounded-xl transition duration-150 border cursor-pointer ${
               activeTab === 'housekeeping'
                 ? 'bg-[#1B4F72] text-white border-[#1B4F72] shadow-sm'
@@ -167,7 +175,7 @@ export default function HousekeepingMaintenance() {
             Cleaning Queue
           </button>
           <button
-            onClick={() => setActiveTab('laundry')}
+            onClick={() => navigate('/housekeeping')}
             className={`px-4 py-2 text-xs font-semibold rounded-xl transition duration-150 border cursor-pointer ${
               activeTab === 'laundry'
                 ? 'bg-[#1B4F72] text-white border-[#1B4F72] shadow-sm'
@@ -177,7 +185,7 @@ export default function HousekeepingMaintenance() {
             Laundry Control
           </button>
           <button
-            onClick={() => setActiveTab('lost_found')}
+            onClick={() => navigate('/housekeeping')}
             className={`px-4 py-2 text-xs font-semibold rounded-xl transition duration-150 border cursor-pointer ${
               activeTab === 'lost_found'
                 ? 'bg-[#1B4F72] text-white border-[#1B4F72] shadow-sm'
@@ -187,7 +195,7 @@ export default function HousekeepingMaintenance() {
             Lost & Found Book
           </button>
           <button
-            onClick={() => setActiveTab('maintenance')}
+            onClick={() => navigate('/maintenance')}
             className={`px-4 py-2 text-xs font-semibold rounded-xl transition duration-150 border cursor-pointer ${
               activeTab === 'maintenance'
                 ? 'bg-[#1B4F72] text-white border-[#1B4F72] shadow-sm'

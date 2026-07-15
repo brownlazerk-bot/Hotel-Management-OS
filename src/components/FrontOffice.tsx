@@ -3,10 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { store } from '../db/store';
 import { Guest, Reservation, Room, PaymentMethod, ReservationStatus } from '../types';
 import { launchPrintPreview, getCheckoutInvoiceHTML, getFrontDeskSelectedReportHTML } from '../utils/printService';
+import { navigate } from '../utils/router';
 import ServiceOrderModal from './ServiceOrderModal';
 import {
   Users,
@@ -22,8 +23,15 @@ import {
   ShoppingCart
 } from 'lucide-react';
 
-export default function FrontOffice() {
-  const [activeTab, setActiveTab] = useState<'bookings' | 'guests' | 'new_booking'>('bookings');
+export default function FrontOffice({ initialTab }: { initialTab?: 'bookings' | 'guests' | 'new_booking' } = {}) {
+  const [activeTab, setActiveTab] = useState<'bookings' | 'guests' | 'new_booking'>(initialTab || 'bookings');
+
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
+
   const db = store.getDb();
 
   // Selected state for dialogs / secondary forms
@@ -159,7 +167,7 @@ export default function FrontOffice() {
     setNewGuestDocNum('');
     setNewGuestAddress('');
     setNewGuestNotes('');
-    setActiveTab('bookings');
+    navigate('/reservations');
   };
 
   // ============================================================================
@@ -243,7 +251,7 @@ export default function FrontOffice() {
     setBookingNotes('');
     setDownpayment(0);
     setIsWalkIn(false);
-    setActiveTab('bookings');
+    navigate('/reservations');
   };
 
   return (
@@ -261,7 +269,7 @@ export default function FrontOffice() {
         </div>
         <div className="flex space-x-2">
           <button
-            onClick={() => setActiveTab('bookings')}
+            onClick={() => navigate('/reservations')}
             className={`px-4 py-2 text-xs font-semibold rounded-xl transition duration-150 border cursor-pointer ${
               activeTab === 'bookings'
                 ? 'bg-[#1B4F72] text-white border-[#1B4F72] shadow-sm'
@@ -271,7 +279,7 @@ export default function FrontOffice() {
             Reservations Queue
           </button>
           <button
-            onClick={() => setActiveTab('new_booking')}
+            onClick={() => navigate('/front-office')}
             className={`px-4 py-2 text-xs font-semibold rounded-xl transition duration-150 border cursor-pointer ${
               activeTab === 'new_booking'
                 ? 'bg-[#1B4F72] text-white border-[#1B4F72] shadow-sm'
@@ -281,7 +289,7 @@ export default function FrontOffice() {
             Create Reservation / Walk-In
           </button>
           <button
-            onClick={() => setActiveTab('guests')}
+            onClick={() => navigate('/guests')}
             className={`px-4 py-2 text-xs font-semibold rounded-xl transition duration-150 border cursor-pointer ${
               activeTab === 'guests'
                 ? 'bg-[#1B4F72] text-white border-[#1B4F72] shadow-sm'

@@ -3,10 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { store } from '../db/store';
 import { Employee, Attendance, Payroll, Account, Transaction, Department, User, Role, RoleName, Permission } from '../types';
 import { launchPrintPreview, getExpenseVoucherHTML, getPaymentVoucherHTML, getPayrollReportHTML } from '../utils/printService';
+import { navigate } from '../utils/router';
 import {
   Users,
   ShieldAlert,
@@ -29,8 +30,15 @@ import {
   Printer
 } from 'lucide-react';
 
-export default function HRFinance() {
-  const [activeTab, setActiveTab] = useState<'employees' | 'attendance' | 'payroll' | 'ledger' | 'users'>('employees');
+export default function HRFinance({ initialTab }: { initialTab?: 'employees' | 'attendance' | 'payroll' | 'ledger' | 'users' } = {}) {
+  const [activeTab, setActiveTab] = useState<'employees' | 'attendance' | 'payroll' | 'ledger' | 'users'>(initialTab || 'employees');
+
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
+
   const db = store.getDb();
 
   // Employee creation states
@@ -363,7 +371,7 @@ export default function HRFinance() {
         </div>
         <div className="flex space-x-2">
           <button
-            onClick={() => setActiveTab('employees')}
+            onClick={() => navigate('/employees')}
             className={`px-4 py-2 text-xs font-semibold rounded-xl transition duration-150 border cursor-pointer ${
               activeTab === 'employees'
                 ? 'bg-[#1B4F72] text-white border-[#1B4F72] shadow-sm'
@@ -373,7 +381,7 @@ export default function HRFinance() {
             Staff & HR Directory
           </button>
           <button
-            onClick={() => setActiveTab('attendance')}
+            onClick={() => navigate('/attendance')}
             className={`px-4 py-2 text-xs font-semibold rounded-xl transition duration-150 border cursor-pointer ${
               activeTab === 'attendance'
                 ? 'bg-[#1B4F72] text-white border-[#1B4F72] shadow-sm'
@@ -383,7 +391,7 @@ export default function HRFinance() {
             Time Attendance
           </button>
           <button
-            onClick={() => setActiveTab('payroll')}
+            onClick={() => navigate('/payroll')}
             className={`px-4 py-2 text-xs font-semibold rounded-xl transition duration-150 border cursor-pointer ${
               activeTab === 'payroll'
                 ? 'bg-[#1B4F72] text-white border-[#1B4F72] shadow-sm'
@@ -393,7 +401,7 @@ export default function HRFinance() {
             Payroll Engine
           </button>
           <button
-            onClick={() => setActiveTab('ledger')}
+            onClick={() => navigate('/accounting')}
             className={`px-4 py-2 text-xs font-semibold rounded-xl transition duration-150 border cursor-pointer ${
               activeTab === 'ledger'
                 ? 'bg-[#1B4F72] text-white border-[#1B4F72] shadow-sm'
@@ -403,7 +411,7 @@ export default function HRFinance() {
             General Ledger & P&L
           </button>
           <button
-            onClick={() => setActiveTab('users')}
+            onClick={() => navigate('/roles')}
             className={`px-4 py-2 text-xs font-semibold rounded-xl transition duration-150 border cursor-pointer ${
               activeTab === 'users'
                 ? 'bg-[#1B4F72] text-white border-[#1B4F72] shadow-sm'

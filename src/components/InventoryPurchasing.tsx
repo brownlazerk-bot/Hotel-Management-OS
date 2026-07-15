@@ -3,10 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { store } from '../db/store';
 import { InventoryProduct, Supplier, PurchaseRequest, PurchaseOrder, StockMovementType, MenuItem } from '../types';
 import { launchPrintPreview, getPurchaseOrderHTML, getGoodsReceivedNoteHTML, getInventorySelectedReportHTML, getProcurementSelectedReportHTML } from '../utils/printService';
+import { navigate } from '../utils/router';
 import {
   Package,
   Plus,
@@ -24,8 +25,15 @@ import {
   Printer
 } from 'lucide-react';
 
-export default function InventoryPurchasing() {
-  const [activeTab, setActiveTab] = useState<'registry' | 'purchases' | 'suppliers' | 'menu_availability'>('registry');
+export default function InventoryPurchasing({ initialTab }: { initialTab?: 'registry' | 'purchases' | 'suppliers' | 'menu_availability' } = {}) {
+  const [activeTab, setActiveTab] = useState<'registry' | 'purchases' | 'suppliers' | 'menu_availability'>(initialTab || 'registry');
+
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
+
   const db = store.getDb();
 
   // Menu Search / Filtering states
@@ -308,7 +316,7 @@ export default function InventoryPurchasing() {
         </div>
         <div className="flex space-x-2">
           <button
-            onClick={() => setActiveTab('registry')}
+            onClick={() => navigate('/inventory')}
             className={`px-4 py-2 text-xs font-semibold rounded-xl transition duration-150 border cursor-pointer ${
               activeTab === 'registry'
                 ? 'bg-[#1B4F72] text-white border-[#1B4F72] shadow-sm'
@@ -318,7 +326,7 @@ export default function InventoryPurchasing() {
             Product Registry & Stock
           </button>
           <button
-            onClick={() => setActiveTab('purchases')}
+            onClick={() => navigate('/purchases')}
             className={`px-4 py-2 text-xs font-semibold rounded-xl transition duration-150 border cursor-pointer ${
               activeTab === 'purchases'
                 ? 'bg-[#1B4F72] text-white border-[#1B4F72] shadow-sm'
@@ -328,7 +336,7 @@ export default function InventoryPurchasing() {
             Purchase Orders
           </button>
           <button
-            onClick={() => setActiveTab('suppliers')}
+            onClick={() => navigate('/suppliers')}
             className={`px-4 py-2 text-xs font-semibold rounded-xl transition duration-150 border cursor-pointer ${
               activeTab === 'suppliers'
                 ? 'bg-[#1B4F72] text-white border-[#1B4F72] shadow-sm'
@@ -338,7 +346,7 @@ export default function InventoryPurchasing() {
             Certified Suppliers
           </button>
           <button
-            onClick={() => setActiveTab('menu_availability')}
+            onClick={() => navigate('/inventory')}
             className={`px-4 py-2 text-xs font-semibold rounded-xl transition duration-150 border cursor-pointer ${
               activeTab === 'menu_availability'
                 ? 'bg-[#1B4F72] text-white border-[#1B4F72] shadow-sm'

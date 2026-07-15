@@ -18,6 +18,7 @@ import ShiftReporting from './components/ShiftReporting';
 import Workflows from './components/Workflows';
 import SwimmingPoolConsole from './components/SwimmingPoolConsole';
 import PrinterStation from './components/PrinterStation';
+import { useRouter } from './utils/router';
 
 import {
   Building,
@@ -40,13 +41,43 @@ import {
   ClipboardList,
   GitPullRequest,
   Waves,
-  Printer
+  Printer,
+  Search,
+  Plus,
+  Key,
+  Check,
+  Trash2
 } from 'lucide-react';
 
 export default function App() {
   const [db, setDb] = useState(store.getDb());
   const [activeUser, setActiveUser] = useState(store.getActiveUser());
-  const [activeTab, setActiveTab] = useState<string>('dashboard');
+  
+  const { currentPath, routeConfig, navigate } = useRouter();
+
+  const getTabPath = (tabId: string) => {
+    switch (tabId) {
+      case 'dashboard': return '/dashboard';
+      case 'front_office': return '/front-office';
+      case 'rooms': return '/rooms';
+      case 'dining': return '/restaurant';
+      case 'inventory': return '/inventory';
+      case 'finance': return '/accounting';
+      case 'operations': return '/housekeeping';
+      case 'reports': return '/reports';
+      case 'settings': return '/settings';
+      case 'workflows': return '/workflows';
+      case 'pool': return '/pool';
+      case 'printing': return '/printer-settings';
+      default: return '/dashboard';
+    }
+  };
+
+  const activeTab = routeConfig.tabId;
+  const setActiveTab = (tabId: string) => {
+    navigate(getTabPath(tabId));
+  };
+
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
@@ -57,6 +88,19 @@ export default function App() {
   const [loginUser, setLoginUser] = useState('');
   const [loginPass, setLoginPass] = useState('');
   const [loginError, setLoginError] = useState('');
+
+  // Operator Self-Registration States
+  const [loginTab, setLoginTab] = useState<'login' | 'register'>('login');
+  const [regName, setRegName] = useState('');
+  const [regUsername, setRegUsername] = useState('');
+  const [regEmail, setRegEmail] = useState('');
+  const [regPassword, setRegPassword] = useState('');
+  const [regRole, setRegRole] = useState('Receptionist');
+  const [regError, setRegError] = useState('');
+  const [regSuccess, setRegSuccess] = useState('');
+
+  // Created Accounts Tracker search query
+  const [userSearchQuery, setUserSearchQuery] = useState('');
 
   // Forgot Password States
   const [isForgotPassword, setIsForgotPassword] = useState(false);
@@ -83,6 +127,17 @@ export default function App() {
       document.documentElement.classList.remove('dark');
     }
   }, [darkMode]);
+
+  // Authorization routing redirects
+  useEffect(() => {
+    if (db.isInitialized) {
+      if (!activeUser && currentPath !== '/login') {
+        navigate('/login');
+      } else if (activeUser && (currentPath === '/login' || currentPath === '/')) {
+        navigate('/dashboard');
+      }
+    }
+  }, [activeUser, currentPath, db.isInitialized, navigate]);
 
   // ============================================================================
   // PERMISSION GATES (RBAC)
@@ -210,6 +265,50 @@ export default function App() {
     }
   };
 
+  const handleRegisterStaffSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!regName || !regUsername || !regPassword || !regRole) {
+      setRegError('All fields are required.');
+      setRegSuccess('');
+      return;
+    }
+
+    const cleanedUsername = regUsername.trim().toLowerCase();
+    const usernameExists = db.users.some(u => u.username.toLowerCase() === cleanedUsername);
+    if (usernameExists) {
+      setRegError('Username already exists in this hotel.');
+      setRegSuccess('');
+      return;
+    }
+
+    const newUser = {
+      id: `usr_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+      name: regName.trim(),
+      username: cleanedUsername,
+      passwordHash: regPassword, // plaintext in this local sandbox simulation
+      role: regRole as any,
+      email: regEmail.trim() || `${cleanedUsername}@hotel.com`,
+      isActive: true,
+      createdAt: new Date().toISOString()
+    };
+
+    store.saveUser(newUser);
+    setRegSuccess(`Account for "${newUser.name}" as ${newUser.role} successfully registered! Autologging in...`);
+    setRegError('');
+
+    // Reset registration form
+    setRegName('');
+    setRegUsername('');
+    setRegEmail('');
+    setRegPassword('');
+
+    // Auto login
+    setTimeout(() => {
+      store.login(newUser.username, newUser.passwordHash);
+      setRegSuccess('');
+    }, 1200);
+  };
+
   const handlePasswordResetSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!resetUsername || !resetCode || !newAdminPassword) {
@@ -268,36 +367,99 @@ export default function App() {
   }
 
   // Scenario 2: Login Gate
-  if (!activeUser) {
+  if (!activeUser || currentPath === '/login') {
+    // Search filter for operator accounts directory
+    const filteredUsersForLogin = db.users.filter((u: any) =>
+      u.name.toLowerCase().includes(userSearchQuery.toLowerCase()) ||
+      u.username.toLowerCase().includes(userSearchQuery.toLowerCase()) ||
+      u.role.toLowerCase().includes(userSearchQuery.toLowerCase())
+    );
+
+    // Dynamic role badges styling
+    const getRoleBadgeStyle = (role: string) => {
+      switch (role) {
+        case 'Super Admin':
+          return 'bg-red-50 text-red-700 border border-red-200 dark:bg-red-950/30 dark:text-red-400 dark:border-red-900/50';
+        case 'Manager':
+          return 'bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/30 dark:text-blue-400 dark:border-blue-900/50';
+        case 'Receptionist':
+          return 'bg-purple-50 text-purple-700 border border-purple-200 dark:bg-purple-950/30 dark:text-purple-400 dark:border-purple-900/50';
+        case 'Accountant':
+          return 'bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-900/50';
+        case 'Cashier':
+          return 'bg-indigo-50 text-indigo-700 border border-indigo-200 dark:bg-indigo-950/30 dark:text-indigo-400 dark:border-indigo-900/50';
+        case 'Waiter':
+          return 'bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-900/50';
+        case 'Manual Operator':
+          return 'bg-orange-50 text-orange-700 border border-orange-200 dark:bg-orange-950/30 dark:text-orange-400 dark:border-orange-900/50';
+        default:
+          return 'bg-gray-50 text-gray-700 border border-gray-200 dark:bg-gray-850 dark:text-gray-400 dark:border-gray-700';
+      }
+    };
+
+    const getRoleEmoji = (role: string) => {
+      switch (role) {
+        case 'Super Admin': return '👑';
+        case 'CEO': return '📈';
+        case 'Manager': return '💼';
+        case 'Receptionist': return '🛎️';
+        case 'Accountant': return '💵';
+        case 'Cashier': return '🛒';
+        case 'Waiter': return '🍽️';
+        case 'Chef': return '🍳';
+        case 'Housekeeper': return '🧹';
+        case 'Storekeeper': return '📦';
+        case 'Maintenance Staff': return '🔧';
+        case 'Security': return '🛡️';
+        case 'Manual Operator': return '🕹️';
+        default: return '👤';
+      }
+    };
+
     return (
-      <div className="min-h-screen bg-[#F4F6F9] dark:bg-gray-900 flex flex-col items-center justify-center p-4 transition-colors duration-150">
-        <div className="w-full max-w-4xl bg-white dark:bg-gray-800 rounded-2xl shadow-xl border border-gray-150 dark:border-gray-700 overflow-hidden flex flex-col md:flex-row">
+      <div className="min-h-screen bg-[#F4F6F9] dark:bg-gray-950 flex flex-col items-center justify-center p-4 transition-colors duration-150">
+        <div className="w-full max-w-6xl bg-white dark:bg-gray-900 rounded-3xl shadow-2xl border border-gray-150 dark:border-gray-800 overflow-hidden flex flex-col md:flex-row">
           
-          {/* Welcome Left bar */}
-          <div className="md:w-5/12 bg-[#1B4F72] text-white p-8 flex flex-col justify-between">
+          {/* Welcome Left Bar - Brand Profile */}
+          <div className="md:w-3/12 bg-[#1B4F72] text-white p-6 flex flex-col justify-between">
             <div>
-              <div className="inline-flex items-center justify-center p-3.5 bg-white/10 rounded-2xl mb-6">
-                <Building className="h-8 w-8 text-[#E67E22]" />
+              <div className="inline-flex items-center justify-center p-3 bg-white/10 rounded-2xl mb-6">
+                <Building className="h-7 w-7 text-[#E67E22]" />
               </div>
-              <h1 className="text-3xl font-bold font-editorial tracking-tight">{db.settings.profile.name || 'Hotel OS'}</h1>
-              <p className="text-[10px] text-blue-100 mt-2 font-semibold tracking-widest uppercase">
+              <h1 className="text-2xl font-black font-sans tracking-tight">{db.settings.profile.name || 'Hotel OS'}</h1>
+              <p className="text-[9px] text-[#E67E22] mt-1.5 font-bold tracking-widest uppercase">
                 {db.settings.profile.slogan || 'Complete Property Operations Management Center'}
               </p>
+              
+              <div className="h-0.5 w-8 bg-orange-500 mt-4 rounded-full"></div>
+
+              <div className="mt-6 space-y-3.5 text-xs text-blue-100/90 leading-relaxed">
+                <p>Welcome to your property dashboard. Each role-based account unlocks distinct administrative panels:</p>
+                <ul className="space-y-1 text-[11px] list-disc list-inside text-blue-200">
+                  <li><strong className="text-white font-medium">Admin:</strong> HR, accounting, system settings.</li>
+                  <li><strong className="text-white font-medium">Reception:</strong> Check-ins, reservations.</li>
+                  <li><strong className="text-white font-medium">Waiter/Cashier:</strong> Food POS orders.</li>
+                  <li><strong className="text-white font-medium">Housekeeping:</strong> Room inspection.</li>
+                </ul>
+              </div>
             </div>
 
-            <div className="mt-8 pt-6 border-t border-white/10 text-xs text-blue-200">
-              <p>Certified Secure Terminal • Version 4.0</p>
-              <p className="mt-1">All ledger connections and checkout transactions are locally journaled.</p>
+            <div className="mt-8 pt-4 border-t border-white/10 text-[10px] text-blue-200/80 space-y-1">
+              <p className="font-semibold text-emerald-400 flex items-center">
+                <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse mr-1"></span>
+                Secure Cloud-Vetted Node
+              </p>
+              <p>Property Ledger • Version 4.0</p>
             </div>
           </div>
 
-          {/* Form / Direct access */}
-          <div className="md:w-7/12 p-8 flex flex-col justify-center">
+          {/* Center Column - Login & Registration Form */}
+          <div className="md:w-5/12 p-8 flex flex-col justify-between border-r border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900">
             <div>
               {isForgotPassword ? (
                 <div>
-                  <h2 className="text-2xl font-bold font-editorial text-gray-800 dark:text-white mb-1">Reset Admin Password</h2>
-                  <p className="text-xs text-gray-400 dark:text-gray-300">Enter emergency credentials to reset the Super Admin password.</p>
+                  <h2 className="text-xl font-bold text-gray-800 dark:text-white mb-1">Reset Admin Password</h2>
+                  <p className="text-xs text-gray-400 dark:text-gray-400">Enter emergency credentials to reset the Super Admin password.</p>
 
                   <form onSubmit={handlePasswordResetSubmit} className="space-y-4 mt-6">
                     <div>
@@ -306,7 +468,7 @@ export default function App() {
                         type="text"
                         required
                         placeholder="e.g. yuskar"
-                        className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none text-gray-800 dark:text-white font-mono font-bold"
+                        className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none text-gray-800 dark:text-white font-mono font-bold"
                         value={resetUsername}
                         onChange={(e) => setResetUsername(e.target.value)}
                       />
@@ -318,7 +480,7 @@ export default function App() {
                         type="text"
                         required
                         placeholder="e.g. yuskar123"
-                        className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none text-gray-800 dark:text-white font-mono font-bold"
+                        className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none text-gray-800 dark:text-white font-mono font-bold"
                         value={resetCode}
                         onChange={(e) => setResetCode(e.target.value)}
                       />
@@ -330,7 +492,7 @@ export default function App() {
                         type="password"
                         required
                         placeholder="••••••••"
-                        className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none text-gray-800 dark:text-white font-mono"
+                        className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none text-gray-800 dark:text-white font-mono"
                         value={newAdminPassword}
                         onChange={(e) => setNewAdminPassword(e.target.value)}
                       />
@@ -355,7 +517,7 @@ export default function App() {
                           setResetSuccess('');
                           setResetError('');
                         }}
-                        className="flex-1 py-2 bg-gray-150 hover:bg-gray-200 dark:bg-gray-750 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 font-bold rounded-xl text-xs transition cursor-pointer text-center border border-gray-250 dark:border-gray-600"
+                        className="flex-1 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 font-bold rounded-xl text-xs transition cursor-pointer text-center border border-gray-250 dark:border-gray-600"
                       >
                         Back to Login
                       </button>
@@ -371,59 +533,183 @@ export default function App() {
                 </div>
               ) : (
                 <div>
-                  <h2 className="text-2xl font-bold font-editorial text-gray-800 dark:text-white mb-1">Staff Secure Terminal</h2>
-                  <p className="text-xs text-gray-400 dark:text-gray-300">Enter secure operator credentials to authorize your console session.</p>
-
-                  <form onSubmit={handleLoginSubmit} className="space-y-4 mt-6">
-                    <div>
-                      <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Username</label>
-                      <input
-                        type="text"
-                        required
-                        placeholder="e.g. admin, receptionist"
-                        className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none text-gray-800 dark:text-white font-mono"
-                        value={loginUser}
-                        onChange={(e) => setLoginUser(e.target.value)}
-                      />
-                    </div>
-
-                    <div>
-                      <div className="flex justify-between items-center mb-1">
-                        <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider">Password</label>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setIsForgotPassword(true);
-                            setResetSuccess('');
-                            setResetError('');
-                          }}
-                          className="text-[10px] font-bold text-[#E67E22] hover:underline cursor-pointer bg-transparent border-0 outline-none p-0"
-                        >
-                          Forgot Password?
-                        </button>
-                      </div>
-                      <input
-                        type="password"
-                        required
-                        placeholder="••••••••"
-                        className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none text-gray-800 dark:text-white font-mono"
-                        value={loginPass}
-                        onChange={(e) => setLoginPass(e.target.value)}
-                      />
-                    </div>
-
-                    {loginError && (
-                      <p className="text-xs text-red-500 font-bold bg-red-50 dark:bg-red-950/20 dark:text-red-400 p-2 rounded border border-red-100 dark:border-red-900/50">{loginError}</p>
-                    )}
-
+                  {/* Dynamic Tabs: Sign In / Self-Register */}
+                  <div className="flex border-b border-gray-150 dark:border-gray-800 mb-6 bg-gray-50 dark:bg-gray-950 p-1 rounded-xl">
                     <button
-                      type="submit"
-                      className="w-full py-2.5 bg-[#1B4F72] hover:bg-[#153E5B] text-white font-bold rounded-xl text-xs transition cursor-pointer flex items-center justify-center space-x-2"
+                      type="button"
+                      onClick={() => {
+                        setLoginTab('login');
+                        setRegError('');
+                        setRegSuccess('');
+                      }}
+                      className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center space-x-1.5 cursor-pointer border-none ${loginTab === 'login' ? 'bg-[#1B4F72] text-white shadow-xs' : 'bg-transparent text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'}`}
                     >
                       <Lock className="h-3.5 w-3.5" />
-                      <span>Authorize Connection</span>
+                      <span>Sign-In Terminal</span>
                     </button>
-                  </form>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLoginTab('register');
+                        setLoginError('');
+                      }}
+                      className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center space-x-1.5 cursor-pointer border-none ${loginTab === 'register' ? 'bg-[#E67E22] text-white shadow-xs' : 'bg-transparent text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'}`}
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      <span>Self-Register Staff</span>
+                    </button>
+                  </div>
+
+                  {loginTab === 'login' ? (
+                    <div>
+                      <h2 className="text-xl font-bold text-gray-800 dark:text-white mb-1">Staff Secure Terminal</h2>
+                      <p className="text-[11px] text-gray-400 dark:text-gray-400">Enter secure operator credentials to authorize your session.</p>
+
+                      <form onSubmit={handleLoginSubmit} className="space-y-4 mt-6">
+                        <div>
+                          <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Username</label>
+                          <input
+                            type="text"
+                            required
+                            placeholder="e.g. admin, receptionist"
+                            className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none text-gray-800 dark:text-white font-mono"
+                            value={loginUser}
+                            onChange={(e) => setLoginUser(e.target.value)}
+                          />
+                        </div>
+
+                        <div>
+                          <div className="flex justify-between items-center mb-1">
+                            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider">Password</label>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setIsForgotPassword(true);
+                                setResetSuccess('');
+                                setResetError('');
+                              }}
+                              className="text-[10px] font-bold text-[#E67E22] hover:underline cursor-pointer bg-transparent border-0 outline-none p-0"
+                            >
+                              Forgot Password?
+                            </button>
+                          </div>
+                          <input
+                            type="password"
+                            required
+                            placeholder="••••••••"
+                            className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none text-gray-800 dark:text-white font-mono"
+                            value={loginPass}
+                            onChange={(e) => setLoginPass(e.target.value)}
+                          />
+                        </div>
+
+                        {loginError && (
+                          <p className="text-xs text-red-500 font-bold bg-red-50 dark:bg-red-950/20 dark:text-red-400 p-2 rounded border border-red-100 dark:border-red-900/50">{loginError}</p>
+                        )}
+
+                        <button
+                          type="submit"
+                          className="w-full py-2.5 bg-[#1B4F72] hover:bg-[#153E5B] text-white font-bold rounded-xl text-xs transition cursor-pointer flex items-center justify-center space-x-2 border-none"
+                        >
+                          <Lock className="h-3.5 w-3.5" />
+                          <span>Authorize Connection</span>
+                        </button>
+                      </form>
+                    </div>
+                  ) : (
+                    <div>
+                      <h2 className="text-xl font-bold text-gray-800 dark:text-white mb-1">Self-Register Account</h2>
+                      <p className="text-[11px] text-gray-400 dark:text-gray-400">Instantly create a staff account to explore role-specific dashboards.</p>
+
+                      <form onSubmit={handleRegisterStaffSubmit} className="space-y-3.5 mt-5">
+                        <div>
+                          <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Full Operator Name</label>
+                          <input
+                            type="text"
+                            required
+                            placeholder="e.g. Sarah Connor"
+                            className="w-full px-3 py-1.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-xs focus:outline-none text-gray-800 dark:text-white"
+                            value={regName}
+                            onChange={(e) => setRegName(e.target.value)}
+                          />
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Username</label>
+                            <input
+                              type="text"
+                              required
+                              placeholder="e.g. sarah"
+                              className="w-full px-3 py-1.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-xs focus:outline-none text-gray-800 dark:text-white font-mono"
+                              value={regUsername}
+                              onChange={(e) => setRegUsername(e.target.value)}
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Operator Role</label>
+                            <select
+                              className="w-full px-3 py-1.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-xs focus:outline-none text-gray-800 dark:text-white cursor-pointer"
+                              value={regRole}
+                              onChange={(e) => setRegRole(e.target.value)}
+                            >
+                              <option value="Super Admin">Super Admin (All access)</option>
+                              <option value="Manager">Manager</option>
+                              <option value="Receptionist">Receptionist</option>
+                              <option value="Accountant">Accountant</option>
+                              <option value="Cashier">Cashier</option>
+                              <option value="Waiter">Waiter</option>
+                              <option value="Housekeeper">Housekeeper</option>
+                              <option value="Maintenance Staff">Maintenance Staff</option>
+                              <option value="Manual Operator">Manual Operator</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Email Address (Optional)</label>
+                          <input
+                            type="email"
+                            placeholder="e.g. s.connor@resort.com"
+                            className="w-full px-3 py-1.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-xs focus:outline-none text-gray-800 dark:text-white"
+                            value={regEmail}
+                            onChange={(e) => setRegEmail(e.target.value)}
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Password</label>
+                          <input
+                            type="password"
+                            required
+                            placeholder="Type a password"
+                            className="w-full px-3 py-1.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-xs focus:outline-none text-gray-800 dark:text-white font-mono"
+                            value={regPassword}
+                            onChange={(e) => setRegPassword(e.target.value)}
+                          />
+                        </div>
+
+                        {regError && (
+                          <p className="text-xs text-red-500 font-bold bg-red-50 dark:bg-red-950/20 dark:text-red-400 p-2 rounded border border-red-100 dark:border-red-900/50">{regError}</p>
+                        )}
+
+                        {regSuccess && (
+                          <p className="text-xs text-emerald-600 font-bold bg-emerald-50 dark:bg-emerald-950/20 dark:text-emerald-400 p-2 rounded border border-emerald-100 dark:border-emerald-900/50 flex items-center space-x-1">
+                            <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-ping"></span>
+                            <span>{regSuccess}</span>
+                          </p>
+                        )}
+
+                        <button
+                          type="submit"
+                          className="w-full py-2 bg-[#E67E22] hover:bg-[#D35400] text-white font-bold rounded-xl text-xs transition cursor-pointer flex items-center justify-center space-x-2 border-none"
+                        >
+                          <Plus className="h-3.5 w-3.5 text-white" />
+                          <span>Register Operator Account</span>
+                        </button>
+                      </form>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -436,7 +722,7 @@ export default function App() {
 
               {/* Business Profile Selection & Creation */}
               {!db.isIsolatedClient && (
-                <div className="mt-6 pt-5 border-t border-gray-100 dark:border-gray-700 space-y-4">
+                <div className="mt-6 pt-5 border-t border-gray-100 dark:border-gray-800 space-y-4">
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] font-bold text-gray-400 dark:text-gray-300 uppercase tracking-wider">
                       Business Profile Management
@@ -464,7 +750,7 @@ export default function App() {
                             }
                           }
                         }}
-                        className="w-full px-2.5 py-1.5 bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 border border-gray-200 dark:border-gray-600 rounded-lg text-xs font-semibold text-gray-700 dark:text-gray-200 cursor-pointer focus:outline-none transition"
+                        className="w-full px-2.5 py-1.5 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-700 rounded-lg text-xs font-semibold text-gray-700 dark:text-gray-200 cursor-pointer focus:outline-none transition"
                       >
                         {profiles.map(p => (
                           <option key={p.id} value={p.id}>
@@ -493,7 +779,7 @@ export default function App() {
 
                   {/* Show list of registered business profiles for quick access if multiple */}
                   {profiles.length > 1 && (
-                    <div className="bg-gray-50 dark:bg-gray-900/40 p-2.5 rounded-xl border border-gray-100 dark:border-gray-800 space-y-1.5">
+                    <div className="bg-gray-50 dark:bg-gray-950 p-2.5 rounded-xl border border-gray-100 dark:border-gray-800 space-y-1.5">
                       <span className="block text-[8px] text-gray-400 dark:text-gray-500 font-bold uppercase tracking-wider">Quick Switch Between Saved Businesses:</span>
                       <div className="flex flex-wrap gap-1.5">
                         {profiles.map(p => (
@@ -517,7 +803,7 @@ export default function App() {
                                   }
                                 }}
                                 className="text-red-400 hover:text-red-600 font-black px-0.5 ml-1 transition cursor-pointer"
-                                  title="Delete profile"
+                                title="Delete profile"
                               >
                                 ×
                               </button>
@@ -532,13 +818,120 @@ export default function App() {
             </div>
           </div>
 
+          {/* Right Column - Registered Staff Accounts Directory & Tracker */}
+          <div className="md:w-4/12 bg-gray-50/50 dark:bg-gray-950/40 p-6 flex flex-col justify-between overflow-hidden">
+            <div className="flex flex-col h-full overflow-hidden">
+              <div className="mb-4">
+                <div className="flex items-center space-x-2 text-gray-800 dark:text-white mb-1">
+                  <Users className="h-5 w-5 text-[#1B4F72]" />
+                  <h3 className="text-sm font-bold tracking-tight">Active Accounts Directory</h3>
+                </div>
+                <p className="text-[10px] text-gray-400 dark:text-gray-400">
+                  Track accounts created inside this hotel. Switch or click to log in with different role access.
+                </p>
+              </div>
+
+              {/* Search Bar */}
+              <div className="relative mb-3.5">
+                <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Search staff, usernames, roles..."
+                  className="w-full pl-8 pr-3 py-1.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-xs focus:outline-none text-gray-800 dark:text-white"
+                  value={userSearchQuery}
+                  onChange={(e) => setUserSearchQuery(e.target.value)}
+                />
+              </div>
+
+              {/* Accounts List */}
+              <div className="flex-1 overflow-y-auto space-y-2.5 max-h-[280px] md:max-h-[380px] pr-1 scrollbar-thin scrollbar-thumb-gray-200">
+                {filteredUsersForLogin.length === 0 ? (
+                  <div className="text-center py-8 text-xs text-gray-400 dark:text-gray-500">
+                    No matching staff accounts found
+                  </div>
+                ) : (
+                  filteredUsersForLogin.map((u: any) => (
+                    <div
+                      key={u.id}
+                      className="bg-white dark:bg-gray-800 p-3 rounded-xl border border-gray-150 dark:border-gray-750/80 shadow-2xs hover:shadow-sm transition-all duration-150 flex flex-col space-y-2 justify-between"
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-center space-x-2 min-w-0">
+                          <span className="text-lg shrink-0" role="img" aria-label="avatar">
+                            {getRoleEmoji(u.role)}
+                          </span>
+                          <div className="min-w-0">
+                            <span className="block text-xs font-bold text-gray-800 dark:text-white truncate">
+                              {u.name}
+                            </span>
+                            <span className="block text-[10px] text-gray-400 dark:text-gray-400 truncate">
+                              @{u.username}
+                            </span>
+                          </div>
+                        </div>
+                        <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider ${getRoleBadgeStyle(u.role)}`}>
+                          {u.role}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center justify-between text-[10px] pt-1 border-t border-gray-100 dark:border-gray-750">
+                        <div className="font-mono text-gray-500 dark:text-gray-400 flex items-center space-x-1">
+                          <span className="font-sans font-semibold text-gray-400">🔑 Pass:</span>
+                          <span className="bg-gray-100 dark:bg-gray-750 px-1 rounded font-bold text-gray-600 dark:text-gray-300">
+                            {u.passwordHash}
+                          </span>
+                        </div>
+                        
+                        <div className="flex items-center space-x-1.5">
+                          <button
+                            onClick={() => {
+                              if (confirm(`Are you sure you want to permanently delete the registered staff account "${u.name}" (@${u.username})?`)) {
+                                const res = store.deleteUser(u.id);
+                                if (!res.success) {
+                                  alert(res.error);
+                                }
+                              }
+                            }}
+                            className="p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 rounded-lg transition cursor-pointer border-none bg-transparent flex items-center justify-center"
+                            title="Delete registered account"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+
+                          <button
+                            onClick={() => {
+                              const res = store.login(u.username, u.passwordHash);
+                              if (res.success) {
+                                setLoginError('');
+                                setLoginUser('');
+                                setLoginPass('');
+                              }
+                            }}
+                            className="px-2.5 py-1 bg-[#1B4F72] hover:bg-[#E67E22] text-white font-bold rounded-lg text-[10px] transition cursor-pointer flex items-center space-x-1 shadow-sm border-none"
+                          >
+                            <span>⚡ 1-Click Login</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div className="text-[9px] text-center text-gray-400 dark:text-gray-500 pt-3 border-t border-gray-150 dark:border-gray-850">
+              Accounts list is kept secure locally. Profiles are synced to active tabs.
+            </div>
+          </div>
+
         </div>
       </div>
     );
   }
 
   // Active view component
-  const CurrentView = tabs.find(t => t.id === activeTab)?.component || Dashboard;
+  const CurrentViewComponent = (tabs.find(t => t.id === activeTab)?.component || Dashboard) as any;
+  const CurrentView = <CurrentViewComponent initialTab={routeConfig.subTab} />;
 
   return (
     <div className="min-h-screen bg-[#F4F6F9] dark:bg-gray-950 flex flex-col font-sans text-gray-800 dark:text-gray-100 transition-colors duration-150">
@@ -861,7 +1254,7 @@ export default function App() {
 
         {/* MAIN MODULE STAGE */}
         <main className="flex-grow p-6 overflow-y-auto max-h-[calc(100vh-70px)]">
-          <CurrentView />
+          {CurrentView}
         </main>
 
       </div>

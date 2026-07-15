@@ -3,9 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { store } from '../db/store';
 import { HotelOSSettings } from '../types';
+import { navigate } from '../utils/router';
 import {
   Settings,
   Plus,
@@ -17,8 +18,15 @@ import {
   ClipboardList
 } from 'lucide-react';
 
-export default function SettingsComponent() {
-  const [activeTab, setActiveTab] = useState<'profile' | 'structure' | 'audit' | 'reset'>('profile');
+export default function SettingsComponent({ initialTab }: { initialTab?: 'profile' | 'structure' | 'audit' | 'reset' } = {}) {
+  const [activeTab, setActiveTab] = useState<'profile' | 'structure' | 'audit' | 'reset'>(initialTab || 'profile');
+
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
+
   const db = store.getDb();
   const [profiles, setProfiles] = useState(store.getSavedProfiles());
 
@@ -149,7 +157,7 @@ export default function SettingsComponent() {
         </div>
         <div className="flex flex-wrap gap-2">
           <button
-            onClick={() => setActiveTab('profile')}
+            onClick={() => navigate('/settings')}
             className={`px-4 py-2 text-xs font-semibold rounded-xl transition duration-150 border cursor-pointer ${
               activeTab === 'profile'
                 ? 'bg-[#1B4F72] text-white border-[#1B4F72] shadow-sm'
@@ -159,7 +167,7 @@ export default function SettingsComponent() {
             Hotel Profile Settings
           </button>
           <button
-            onClick={() => setActiveTab('structure')}
+            onClick={() => navigate('/system-settings')}
             className={`px-4 py-2 text-xs font-semibold rounded-xl transition duration-150 border cursor-pointer ${
               activeTab === 'structure'
                 ? 'bg-[#1B4F72] text-white border-[#1B4F72] shadow-sm'
@@ -169,7 +177,7 @@ export default function SettingsComponent() {
             Structural Layouts
           </button>
           <button
-            onClick={() => setActiveTab('audit')}
+            onClick={() => navigate('/audit')}
             className={`px-4 py-2 text-xs font-semibold rounded-xl transition duration-150 border cursor-pointer ${
               activeTab === 'audit'
                 ? 'bg-[#1B4F72] text-white border-[#1B4F72] shadow-sm'
@@ -179,7 +187,7 @@ export default function SettingsComponent() {
             Tamper-Proof Audit logs
           </button>
           <button
-            onClick={() => setActiveTab('reset')}
+            onClick={() => navigate('/settings')}
             className={`px-4 py-2 text-xs font-semibold rounded-xl transition duration-150 border cursor-pointer ${
               activeTab === 'reset'
                 ? 'bg-[#1B4F72] text-white border-[#1B4F72] shadow-sm'
