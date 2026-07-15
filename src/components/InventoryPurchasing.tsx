@@ -6,7 +6,7 @@
 import React, { useState, useMemo } from 'react';
 import { store } from '../db/store';
 import { InventoryProduct, Supplier, PurchaseRequest, PurchaseOrder, StockMovementType, MenuItem } from '../types';
-import { launchPrintPreview, getPurchaseOrderHTML, getGoodsReceivedNoteHTML } from '../utils/printService';
+import { launchPrintPreview, getPurchaseOrderHTML, getGoodsReceivedNoteHTML, getInventorySelectedReportHTML, getProcurementSelectedReportHTML } from '../utils/printService';
 import {
   Package,
   Plus,
@@ -69,6 +69,10 @@ export default function InventoryPurchasing() {
   const [poProductId, setPoProductId] = useState('');
   const [poQty, setPoQty] = useState<number>(10);
   const [poPrice, setPoPrice] = useState<number>(10);
+
+  // Selected items for reports
+  const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
+  const [selectedPurchaseOrderIds, setSelectedPurchaseOrderIds] = useState<string[]>([]);
 
   // ============================================================================
   // CALCULATIONS & FILTERS
@@ -227,6 +231,68 @@ export default function InventoryPurchasing() {
     store.receivePurchaseOrder(poId);
   };
 
+  const handleToggleProductSelection = (productId: string) => {
+    setSelectedProductIds(prev => 
+      prev.includes(productId) 
+        ? prev.filter(id => id !== productId) 
+        : [...prev, productId]
+    );
+  };
+
+  const handleSelectAllFilteredProducts = (filteredProds: InventoryProduct[]) => {
+    const allFilteredIds = filteredProds.map(p => p.id);
+    const areAllSelected = allFilteredIds.every(id => selectedProductIds.includes(id));
+    if (areAllSelected) {
+      setSelectedProductIds(prev => prev.filter(id => !allFilteredIds.includes(id)));
+    } else {
+      setSelectedProductIds(prev => {
+        const union = new Set([...prev, ...allFilteredIds]);
+        return Array.from(union);
+      });
+    }
+  };
+
+  const handlePrintStockReport = () => {
+    const selectedProducts = db.products.filter(p => selectedProductIds.includes(p.id));
+    if (selectedProducts.length === 0) {
+      alert("Please select at least one product to print.");
+      return;
+    }
+    const html = getInventorySelectedReportHTML(selectedProducts);
+    launchPrintPreview('Inventory Report', `Selected Stock Level Report - ${selectedProducts.length} items`, html);
+  };
+
+  const handleTogglePOSelection = (poId: string) => {
+    setSelectedPurchaseOrderIds(prev => 
+      prev.includes(poId) 
+        ? prev.filter(id => id !== poId) 
+        : [...prev, poId]
+    );
+  };
+
+  const handleSelectAllPOs = (pos: PurchaseOrder[]) => {
+    const allPoIds = pos.map(p => p.id);
+    const areAllSelected = allPoIds.every(id => selectedPurchaseOrderIds.includes(id));
+    if (areAllSelected) {
+      setSelectedPurchaseOrderIds(prev => prev.filter(id => !allPoIds.includes(id)));
+    } else {
+      setSelectedPurchaseOrderIds(prev => {
+        const union = new Set([...prev, ...allPoIds]);
+        return Array.from(union);
+      });
+    }
+  };
+
+  const handlePrintProcurementReport = () => {
+    const selectedOrders = db.purchaseOrders.filter(o => selectedPurchaseOrderIds.includes(o.id));
+    if (selectedOrders.length === 0) {
+      alert("Please select at least one purchase order to print.");
+      return;
+    }
+    const html = getProcurementSelectedReportHTML(selectedOrders);
+    launchPrintPreview('Inventory Report', `Selected Procurement Report - ${selectedOrders.length} orders`, html);
+  };
+
   return (
     <div className="space-y-6">
       {/* Module Title */}
@@ -331,10 +397,52 @@ export default function InventoryPurchasing() {
               </div>
             </div>
 
+            {/* Printable Stock Report Builder */}
+            <div className="flex items-center justify-between bg-slate-50 p-3.5 rounded-xl border border-gray-150 text-xs">
+              <div className="flex items-center space-x-2">
+                <span className="p-1.5 bg-blue-50 text-[#1B4F72] rounded-lg">
+                  <Printer className="h-4 w-4" />
+                </span>
+                <div>
+                  <strong className="text-gray-700 block">Stock Report Builder</strong>
+                  <span className="text-[10px] text-gray-400 font-medium">Select specific items from the list below, then compile into a formatted print report.</span>
+                </div>
+              </div>
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  onClick={() => handleSelectAllFilteredProducts(filteredProducts)}
+                  className="px-2.5 py-1.5 bg-white text-gray-600 border border-gray-200 hover:bg-gray-50 rounded-xl text-xs font-semibold cursor-pointer"
+                >
+                  {filteredProducts.length > 0 && filteredProducts.every(p => selectedProductIds.includes(p.id)) ? 'Deselect All' : 'Select All'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handlePrintStockReport}
+                  disabled={selectedProductIds.length === 0}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1 transition shadow-sm ${
+                    selectedProductIds.length > 0
+                      ? 'bg-[#1B4F72] hover:bg-[#153E5B] text-white cursor-pointer'
+                      : 'bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200'
+                  }`}
+                >
+                  <Printer className="h-3.5 w-3.5" /> Print Selected ({selectedProductIds.length})
+                </button>
+              </div>
+            </div>
+
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
                   <tr className="border-b border-gray-150 text-[10px] font-bold text-gray-400 uppercase tracking-wider bg-gray-50/50">
+                    <th className="py-2.5 px-3 w-10 text-center">
+                      <input
+                        type="checkbox"
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer h-3.5 w-3.5"
+                        checked={filteredProducts.length > 0 && filteredProducts.every(p => selectedProductIds.includes(p.id))}
+                        onChange={() => handleSelectAllFilteredProducts(filteredProducts)}
+                      />
+                    </th>
                     <th className="py-2.5 px-3">Item Name</th>
                     <th className="py-2.5 px-3">Category</th>
                     <th className="py-2.5 px-3">Location</th>
@@ -346,8 +454,17 @@ export default function InventoryPurchasing() {
                 <tbody className="divide-y divide-gray-100">
                   {filteredProducts.map(p => {
                     const isLow = p.currentStock <= p.minStockAlert;
+                    const isSelected = selectedProductIds.includes(p.id);
                     return (
-                      <tr key={p.id} className="hover:bg-gray-50/50 font-medium text-gray-700">
+                      <tr key={p.id} className={`hover:bg-gray-50/50 font-medium text-gray-700 ${isSelected ? 'bg-blue-50/20' : ''}`}>
+                        <td className="py-3 px-3 text-center">
+                          <input
+                            type="checkbox"
+                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer h-3.5 w-3.5"
+                            checked={isSelected}
+                            onChange={() => handleToggleProductSelection(p.id)}
+                          />
+                        </td>
                         <td className="py-3 px-3">
                           <strong className="text-gray-800 text-xs block">{p.name}</strong>
                           <span className="text-[10px] text-gray-400 font-mono">ID: {p.id} • Unit: {p.unit}</span>
@@ -572,21 +689,66 @@ export default function InventoryPurchasing() {
           {/* Active purchases lists */}
           <div className="bg-white p-6 rounded-2xl border border-gray-150 shadow-sm lg:col-span-2 space-y-4">
             <h3 className="text-sm font-bold text-gray-800 pb-2 border-b border-gray-100">Live Procurement Orders ({db.purchaseOrders.length})</h3>
+            
+            {/* Printable Procurement Report Builder */}
+            <div className="flex items-center justify-between bg-slate-50 p-3.5 rounded-xl border border-gray-150 text-xs">
+              <div className="flex items-center space-x-2">
+                <span className="p-1.5 bg-blue-50 text-[#1B4F72] rounded-lg">
+                  <Printer className="h-4 w-4" />
+                </span>
+                <div>
+                  <strong className="text-gray-700 block">Procurement Report Builder</strong>
+                  <span className="text-[10px] text-gray-400 font-medium">Select specific orders from the queue below to compile a printable procurement statement.</span>
+                </div>
+              </div>
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  onClick={() => handleSelectAllPOs(db.purchaseOrders)}
+                  className="px-2.5 py-1.5 bg-white text-gray-600 border border-gray-200 hover:bg-gray-50 rounded-xl text-xs font-semibold cursor-pointer"
+                >
+                  {db.purchaseOrders.length > 0 && db.purchaseOrders.every(po => selectedPurchaseOrderIds.includes(po.id)) ? 'Deselect All' : 'Select All'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handlePrintProcurementReport}
+                  disabled={selectedPurchaseOrderIds.length === 0}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1 transition shadow-sm ${
+                    selectedPurchaseOrderIds.length > 0
+                      ? 'bg-[#1B4F72] hover:bg-[#153E5B] text-white cursor-pointer'
+                      : 'bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200'
+                  }`}
+                >
+                  <Printer className="h-3.5 w-3.5" /> Print Selected ({selectedPurchaseOrderIds.length})
+                </button>
+              </div>
+            </div>
+
             <div className="space-y-4 max-h-[500px] overflow-y-auto pr-1">
               {db.purchaseOrders.map(po => {
                 const supplier = db.suppliers.find(s => s.id === po.supplierId);
+                const isSelected = selectedPurchaseOrderIds.includes(po.id);
                 return (
-                  <div key={po.id} className="p-4 bg-gray-50/50 rounded-2xl border border-gray-150 flex items-start justify-between">
-                    <div className="space-y-1.5 text-xs text-gray-600">
-                      <div className="flex items-center space-x-2">
-                        <strong className="text-[#1B4F72] font-mono text-sm">{po.id}</strong>
-                        <span className={`px-2 py-0.5 rounded text-[9px] font-bold ${
-                          po.status === 'Received' ? 'bg-green-50 text-green-700 border border-green-100' : 'bg-orange-50 text-[#E67E22] border border-orange-100'
-                        }`}>
-                          {po.status}
-                        </span>
+                  <div key={po.id} className={`p-4 rounded-2xl border flex items-start justify-between transition ${isSelected ? 'bg-blue-50/20 border-blue-200 ring-1 ring-blue-200' : 'bg-gray-50/50 border-gray-150'}`}>
+                    <div className="flex items-start space-x-3 text-xs text-gray-600">
+                      <div className="pt-1.5 shrink-0">
+                        <input
+                          type="checkbox"
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer h-4 w-4"
+                          checked={isSelected}
+                          onChange={() => handleTogglePOSelection(po.id)}
+                        />
                       </div>
-                      <p className="font-bold text-gray-800">Supplier: {supplier?.name}</p>
+                      <div className="space-y-1.5">
+                        <div className="flex items-center space-x-2">
+                          <strong className="text-[#1B4F72] font-mono text-sm">{po.id}</strong>
+                          <span className={`px-2 py-0.5 rounded text-[9px] font-bold ${
+                            po.status === 'Received' ? 'bg-green-50 text-green-700 border border-green-100' : 'bg-orange-50 text-[#E67E22] border border-orange-100'
+                          }`}>
+                            {po.status}
+                          </span>
+                        </div>
+                        <p className="font-bold text-gray-800">Supplier: {supplier?.name}</p>
                       <div className="text-[11px] space-y-1 bg-white p-2.5 rounded-lg border border-gray-150">
                         {po.items.map((it, idx) => (
                           <div key={idx} className="flex justify-between font-medium">
@@ -597,8 +759,9 @@ export default function InventoryPurchasing() {
                       </div>
                       <span className="block font-mono text-[10px] text-gray-400">Date Ordered: {po.orderedDate}</span>
                     </div>
+                  </div>
 
-                    <div className="text-right space-y-3 shrink-0 flex flex-col items-end">
+                  <div className="text-right space-y-3 shrink-0 flex flex-col items-end">
                       <div>
                         <span className="text-[9px] font-bold text-gray-400 block uppercase tracking-wider">Total amount</span>
                         <strong className="text-base font-bold text-gray-800">${po.totalAmount}</strong>

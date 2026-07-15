@@ -546,66 +546,49 @@ class HotelStore {
       if (stored) {
         const parsed = JSON.parse(stored);
         
-        // Check if this is the demo account "The Grand Horizon Resort & Spa" and delete it
-        if (parsed && parsed.settings?.profile?.name === 'The Grand Horizon Resort & Spa') {
-          localStorage.removeItem('hotel_os_database');
-          localStorage.removeItem('hotel_os_db_prof_the_grand_horizon_resort_&_spa');
-          
-          // Clean profiles index as well
-          const indexStr = localStorage.getItem('hotel_os_profiles_index');
-          if (indexStr) {
-            try {
-              const index = JSON.parse(indexStr);
-              const filtered = index.filter((p: any) => p.name !== 'The Grand Horizon Resort & Spa');
-              localStorage.setItem('hotel_os_profiles_index', JSON.stringify(filtered));
-            } catch (err) {}
-          }
-          sessionStorage.removeItem('hotel_os_session');
-        } else {
-          // Migration: Ensure Waiter role has both manage_restaurant and manage_pos if roles are already stored
-          if (parsed.roles) {
-            parsed.roles = parsed.roles.map((r: any) => {
-              if (r.name === 'Waiter' && !r.permissions.includes('manage_pos') && !r.permissions.includes('all')) {
-                return { ...r, permissions: [...r.permissions, 'manage_pos'] };
-              }
-              return r;
+        // Migration: Ensure Waiter role has both manage_restaurant and manage_pos if roles are already stored
+        if (parsed.roles) {
+          parsed.roles = parsed.roles.map((r: any) => {
+            if (r.name === 'Waiter' && !r.permissions.includes('manage_pos') && !r.permissions.includes('all')) {
+              return { ...r, permissions: [...r.permissions, 'manage_pos'] };
+            }
+            return r;
+          });
+          // Ensure Manual Operator role is in the list
+          const hasManualOperator = parsed.roles.some((r: any) => r.name === 'Manual Operator');
+          if (!hasManualOperator) {
+            parsed.roles.push({
+              id: '13',
+              name: 'Manual Operator',
+              description: 'Operations controller with manual override and process auditing clearance.',
+              permissions: ['view_dashboard', 'manage_restaurant', 'manage_pos', 'manage_inventory', 'manage_purchasing', 'manage_accounting', 'manage_housekeeping', 'manage_maintenance']
             });
-            // Ensure Manual Operator role is in the list
-            const hasManualOperator = parsed.roles.some((r: any) => r.name === 'Manual Operator');
-            if (!hasManualOperator) {
-              parsed.roles.push({
-                id: '13',
-                name: 'Manual Operator',
-                description: 'Operations controller with manual override and process auditing clearance.',
-                permissions: ['view_dashboard', 'manage_restaurant', 'manage_pos', 'manage_inventory', 'manage_purchasing', 'manage_accounting', 'manage_housekeeping', 'manage_maintenance']
-              });
-            }
           }
-          if (parsed.users) {
-            const hasOperatorUser = parsed.users.some((u: any) => u.username === 'operator' || u.role === 'Manual Operator');
-            if (!hasOperatorUser) {
-              parsed.users.push({
-                id: 'usr_operator',
-                username: 'operator',
-                passwordHash: 'operator123',
-                role: 'Manual Operator',
-                name: 'Alex Vance',
-                email: 'a.vance@grandhorizon.com',
-                isActive: true,
-                createdAt: new Date().toISOString()
-              });
-            }
-          }
-          return {
-            ...INITIAL_STATE,
-            ...parsed,
-            shiftReports: parsed.shiftReports || [],
-            consoleMappings: parsed.consoleMappings || this.getDefaultConsoleMappings(),
-            usbPrinters: parsed.usbPrinters && parsed.usbPrinters.length > 0 ? parsed.usbPrinters : this.getDefaultPrinters(),
-            printJobs: parsed.printJobs || [],
-            reprints: parsed.reprints || []
-          };
         }
+        if (parsed.users) {
+          const hasOperatorUser = parsed.users.some((u: any) => u.username === 'operator' || u.role === 'Manual Operator');
+          if (!hasOperatorUser) {
+            parsed.users.push({
+              id: 'usr_operator',
+              username: 'operator',
+              passwordHash: 'operator123',
+              role: 'Manual Operator',
+              name: 'Alex Vance',
+              email: 'a.vance@grandhorizon.com',
+              isActive: true,
+              createdAt: new Date().toISOString()
+            });
+          }
+        }
+        return {
+          ...INITIAL_STATE,
+          ...parsed,
+          shiftReports: parsed.shiftReports || [],
+          consoleMappings: parsed.consoleMappings || this.getDefaultConsoleMappings(),
+          usbPrinters: parsed.usbPrinters && parsed.usbPrinters.length > 0 ? parsed.usbPrinters : this.getDefaultPrinters(),
+          printJobs: parsed.printJobs || [],
+          reprints: parsed.reprints || []
+        };
       }
     } catch (e) {
       console.error('Failed to load database from localStorage, initializing fresh', e);

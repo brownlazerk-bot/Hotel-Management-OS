@@ -6,6 +6,8 @@
 import React, { useState, useMemo } from 'react';
 import { store } from '../db/store';
 import { Room, RoomType, RoomStatus } from '../types';
+import { launchPrintPreview, getRoomSelectedReportHTML } from '../utils/printService';
+import ServiceOrderModal from './ServiceOrderModal';
 import {
   Grid,
   Settings,
@@ -18,7 +20,9 @@ import {
   Flame,
   Wrench,
   Activity,
-  Trash2
+  Trash2,
+  Printer,
+  ShoppingCart
 } from 'lucide-react';
 
 export default function RoomManagement() {
@@ -28,6 +32,11 @@ export default function RoomManagement() {
   // Selected filters for status board
   const [selectedBuilding, setSelectedBuilding] = useState<string>('All');
   const [selectedStatus, setSelectedStatus] = useState<string>('All');
+
+  // Service Order states
+  const [isServiceOrderOpen, setIsServiceOrderOpen] = useState<boolean>(false);
+  const [serviceOrderRoomNumber, setServiceOrderRoomNumber] = useState<string>('');
+  const [serviceOrderReservationId, setServiceOrderReservationId] = useState<string>('');
 
   // Dialog/Modal configurations
   const [isRoomModalOpen, setIsRoomModalOpen] = useState(false);
@@ -46,6 +55,41 @@ export default function RoomManagement() {
   const [typePrice, setTypePrice] = useState<number>(100);
   const [typeCap, setTypeCap] = useState<number>(2);
   const [typeAmenities, setTypeAmenities] = useState<string>('Wi-Fi, Air Conditioning');
+
+  // Selected Rooms for printing reports
+  const [selectedRoomIds, setSelectedRoomIds] = useState<string[]>([]);
+
+  // Selection/Print handlers
+  const handleToggleRoomSelection = (roomId: string) => {
+    setSelectedRoomIds(prev => 
+      prev.includes(roomId) 
+        ? prev.filter(id => id !== roomId) 
+        : [...prev, roomId]
+    );
+  };
+
+  const handleSelectAllRooms = (allRooms: Room[]) => {
+    const roomIds = allRooms.map(r => r.id);
+    const areAllSelected = roomIds.every(id => selectedRoomIds.includes(id));
+    if (areAllSelected) {
+      setSelectedRoomIds(prev => prev.filter(id => !roomIds.includes(id)));
+    } else {
+      setSelectedRoomIds(prev => {
+        const union = new Set([...prev, ...roomIds]);
+        return Array.from(union);
+      });
+    }
+  };
+
+  const handlePrintRoomReport = () => {
+    const selectedRooms = db.rooms.filter(r => selectedRoomIds.includes(r.id));
+    if (selectedRooms.length === 0) {
+      alert("Please select at least one room to print.");
+      return;
+    }
+    const html = getRoomSelectedReportHTML(selectedRooms);
+    launchPrintPreview('Room Report', `Selected Room Inventory Report - ${selectedRooms.length} rooms`, html);
+  };
 
   // ============================================================================
   // CALCULATIONS & FILTERS
@@ -186,6 +230,19 @@ export default function RoomManagement() {
           >
             Physical Setup Config
           </button>
+          
+          <button
+            onClick={() => {
+              setServiceOrderRoomNumber('');
+              setServiceOrderReservationId('');
+              setIsServiceOrderOpen(true);
+            }}
+            className="px-4 py-2 text-xs font-bold bg-[#E67E22] hover:bg-[#D35400] text-white rounded-xl transition duration-150 border border-transparent hover:scale-[1.02] cursor-pointer flex items-center space-x-1.5 shadow-md"
+            title="Place Room Service or Client Order"
+          >
+            <ShoppingCart className="h-4 w-4 text-white" />
+            <span>Place Client Order</span>
+          </button>
         </div>
       </div>
 
@@ -291,16 +348,32 @@ export default function RoomManagement() {
                           </div>
 
                           {/* Occupying guest description or status */}
-                          <div className="text-[11px] font-semibold mt-2 truncate">
-                            {guestLabel ? (
-                              <span className="flex items-center text-blue-700">👤 Guest: {guestLabel}</span>
-                            ) : (
-                              <span className="text-gray-400 font-normal">No active guest</span>
+                          <div className="flex items-center justify-between mt-2">
+                            <div className="text-[11px] font-semibold truncate max-w-[75%]">
+                              {guestLabel ? (
+                                <span className="flex items-center text-blue-700 font-bold" title={`Guest: ${guestLabel}`}>👤 {guestLabel}</span>
+                              ) : (
+                                <span className="text-gray-400 font-normal">No active guest</span>
+                              )}
+                            </div>
+                            {guestLabel && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setServiceOrderRoomNumber(rm.roomNumber);
+                                  setServiceOrderReservationId(rm.currentReservationId || '');
+                                  setIsServiceOrderOpen(true);
+                                }}
+                                className="p-1 bg-[#E67E22] hover:bg-[#D35400] text-white rounded-lg transition cursor-pointer flex items-center shadow-xs hover:scale-105"
+                                title="Place Client Order / Room Service"
+                              >
+                                <ShoppingCart className="h-3 w-3 text-white" />
+                              </button>
                             )}
                           </div>
 
                           {/* Quick change status tray on hover */}
-                          <div className="absolute inset-0 bg-[#1B4F72]/95 rounded-2xl opacity-0 group-hover:opacity-100 transition-all duration-200 flex flex-col justify-center p-2.5 space-y-1 z-10">
+                          <div className="absolute inset-0 bg-[#1B4F72]/95 rounded-2xl opacity-0 group-hover:opacity-100 transition-all duration-200 flex flex-col justify-center p-2.5 space-y-1 z-10 font-sans">
                             <span className="text-[9px] text-gray-300 font-bold block text-center uppercase tracking-wider mb-0.5">Quick Actions</span>
                             <div className="grid grid-cols-2 gap-1 text-[9px] font-bold">
                               <button
@@ -328,6 +401,16 @@ export default function RoomManagement() {
                                 Set Cleaning
                               </button>
                             </div>
+                            <button
+                              onClick={() => {
+                                setServiceOrderRoomNumber(rm.roomNumber);
+                                setServiceOrderReservationId(rm.currentReservationId || '');
+                                setIsServiceOrderOpen(true);
+                              }}
+                              className="w-full bg-[#E67E22] hover:bg-[#D35400] text-white py-1 rounded transition text-center cursor-pointer text-[9px] font-bold flex items-center justify-center gap-1 mt-1 shadow-xs"
+                            >
+                              <ShoppingCart className="h-3 w-3" /> Place Room Order
+                            </button>
                           </div>
 
                         </div>
@@ -558,23 +641,75 @@ export default function RoomManagement() {
           {/* Rooms Inventory List */}
           <div className="bg-white p-6 rounded-2xl border border-gray-150 shadow-sm lg:col-span-2 space-y-4">
             <h3 className="text-sm font-bold text-gray-800 pb-2 border-b border-gray-100">All Deployed Room Inventory ({db.rooms.length})</h3>
+            
+            {/* Printable Room Report Builder */}
+            <div className="flex items-center justify-between bg-slate-50 p-3.5 rounded-xl border border-gray-150 text-xs">
+              <div className="flex items-center space-x-2">
+                <span className="p-1.5 bg-blue-50 text-[#1B4F72] rounded-lg">
+                  <Printer className="h-4 w-4" />
+                </span>
+                <div>
+                  <strong className="text-gray-700 block">Room Report Builder</strong>
+                  <span className="text-[10px] text-gray-400 font-medium">Select specific rooms from the table below, then compile into a formatted print report.</span>
+                </div>
+              </div>
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  onClick={() => handleSelectAllRooms(db.rooms)}
+                  className="px-2.5 py-1.5 bg-white text-gray-600 border border-gray-200 hover:bg-gray-50 rounded-xl text-xs font-semibold cursor-pointer"
+                >
+                  {db.rooms.length > 0 && db.rooms.every(r => selectedRoomIds.includes(r.id)) ? 'Deselect All' : 'Select All'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handlePrintRoomReport}
+                  disabled={selectedRoomIds.length === 0}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1 transition shadow-sm ${
+                    selectedRoomIds.length > 0
+                      ? 'bg-[#1B4F72] hover:bg-[#153E5B] text-white cursor-pointer'
+                      : 'bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200'
+                  }`}
+                >
+                  <Printer className="h-3.5 w-3.5" /> Print Selected ({selectedRoomIds.length})
+                </button>
+              </div>
+            </div>
+
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
                   <tr className="border-b border-gray-150 text-[10px] font-bold text-gray-400 uppercase tracking-wider bg-gray-50/50">
+                    <th className="py-2.5 px-3 w-10 text-center">
+                      <input
+                        type="checkbox"
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer h-3.5 w-3.5"
+                        checked={db.rooms.length > 0 && db.rooms.every(r => selectedRoomIds.includes(r.id))}
+                        onChange={() => handleSelectAllRooms(db.rooms)}
+                      />
+                    </th>
                     <th className="py-2.5 px-3">Room Number</th>
                     <th className="py-2.5 px-3">Building / Floor</th>
                     <th className="py-2.5 px-3">Category</th>
                     <th className="py-2.5 px-3">Current Status</th>
-                    <th className="py-2.5 px-3 text-right">Delete</th>
+                    <th className="py-2.5 px-3 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {db.rooms.map(rm => {
                     const typeObj = db.roomTypes.find(t => t.id === rm.roomTypeId);
+                    const isSelected = selectedRoomIds.includes(rm.id);
                     return (
-                      <tr key={rm.id} className="hover:bg-gray-50/50">
-                        <td className="py-3 px-3 font-mono font-bold text-gray-800 text-sm">{rm.roomNumber}</td>
+                      <tr key={rm.id} className={`hover:bg-gray-50/50 ${isSelected ? 'bg-blue-50/20' : ''}`}>
+                        <td className="py-3 px-3 text-center">
+                          <input
+                            type="checkbox"
+                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer h-3.5 w-3.5"
+                            checked={isSelected}
+                            onChange={() => handleToggleRoomSelection(rm.id)}
+                          />
+                        </td>
+                        <td className="py-3 px-3 font-mono font-bold text-gray-800 text-sm">Room {rm.roomNumber}</td>
                         <td className="py-3 px-3 text-gray-600">
                           <span className="block font-semibold">{rm.building}</span>
                           <span className="text-[10px] text-gray-400">{rm.floor}</span>
@@ -593,12 +728,25 @@ export default function RoomManagement() {
                           </span>
                         </td>
                         <td className="py-3 px-3 text-right">
-                          <button
-                            onClick={() => handleDeleteRoom(rm.id)}
-                            className="text-red-400 hover:text-red-600 p-1 cursor-pointer"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
+                          <div className="flex items-center justify-end space-x-1.5">
+                            <button
+                              onClick={() => {
+                                setServiceOrderRoomNumber(rm.roomNumber);
+                                setServiceOrderReservationId(rm.currentReservationId || '');
+                                setIsServiceOrderOpen(true);
+                              }}
+                              className="text-blue-600 hover:text-blue-800 p-1.5 hover:bg-blue-50 rounded-lg transition border border-transparent hover:border-blue-100 cursor-pointer"
+                              title="Place Room Order"
+                            >
+                              <ShoppingCart className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteRoom(rm.id)}
+                              className="text-red-400 hover:text-red-600 p-1.5 hover:bg-red-50 rounded-lg cursor-pointer"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -609,6 +757,14 @@ export default function RoomManagement() {
           </div>
         </div>
       )}
+
+      {/* SERVICE ORDER BUILDER MODAL */}
+      <ServiceOrderModal
+        isOpen={isServiceOrderOpen}
+        onClose={() => setIsServiceOrderOpen(false)}
+        targetRoomNumber={serviceOrderRoomNumber}
+        targetReservationId={serviceOrderReservationId}
+      />
 
     </div>
   );

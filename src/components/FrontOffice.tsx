@@ -6,7 +6,8 @@
 import React, { useState, useMemo } from 'react';
 import { store } from '../db/store';
 import { Guest, Reservation, Room, PaymentMethod, ReservationStatus } from '../types';
-import { launchPrintPreview, getCheckoutInvoiceHTML } from '../utils/printService';
+import { launchPrintPreview, getCheckoutInvoiceHTML, getFrontDeskSelectedReportHTML } from '../utils/printService';
+import ServiceOrderModal from './ServiceOrderModal';
 import {
   Users,
   Calendar,
@@ -17,7 +18,8 @@ import {
   Printer,
   ChevronRight,
   Trash2,
-  AlertCircle
+  AlertCircle,
+  ShoppingCart
 } from 'lucide-react';
 
 export default function FrontOffice() {
@@ -28,7 +30,47 @@ export default function FrontOffice() {
   const [selectedRes, setSelectedRes] = useState<Reservation | null>(null);
   const [isInvoiceOpen, setIsInvoiceOpen] = useState<boolean>(false);
   const [isTransferOpen, setIsTransferOpen] = useState<boolean>(false);
+
+  // Service Order states
+  const [isServiceOrderOpen, setIsServiceOrderOpen] = useState<boolean>(false);
+  const [serviceOrderRoomNumber, setServiceOrderRoomNumber] = useState<string>('');
+  const [serviceOrderReservationId, setServiceOrderReservationId] = useState<string>('');
   const [transferRoomId, setTransferRoomId] = useState<string>('');
+
+  // Selected Booking IDs for printing reports
+  const [selectedReservationIds, setSelectedReservationIds] = useState<string[]>([]);
+
+  // Selection/Print handlers
+  const handleToggleReservationSelection = (resId: string) => {
+    setSelectedReservationIds(prev => 
+      prev.includes(resId) 
+        ? prev.filter(id => id !== resId) 
+        : [...prev, resId]
+    );
+  };
+
+  const handleSelectAllReservations = (allReservations: Reservation[]) => {
+    const resIds = allReservations.map(r => r.id);
+    const areAllSelected = resIds.every(id => selectedReservationIds.includes(id));
+    if (areAllSelected) {
+      setSelectedReservationIds(prev => prev.filter(id => !resIds.includes(id)));
+    } else {
+      setSelectedReservationIds(prev => {
+        const union = new Set([...prev, ...resIds]);
+        return Array.from(union);
+      });
+    }
+  };
+
+  const handlePrintFrontDeskReport = () => {
+    const selectedReservations = db.reservations.filter(r => selectedReservationIds.includes(r.id));
+    if (selectedReservations.length === 0) {
+      alert("Please select at least one booking to print.");
+      return;
+    }
+    const html = getFrontDeskSelectedReportHTML(selectedReservations);
+    launchPrintPreview('Front Office Report', `Selected Bookings Ledger - ${selectedReservations.length} items`, html);
+  };
 
   // ============================================================================
   // TAB 1: BOOKINGS LIST & CONTROL
@@ -248,6 +290,19 @@ export default function FrontOffice() {
           >
             Guest Registry
           </button>
+          
+          <button
+            onClick={() => {
+              setServiceOrderRoomNumber('');
+              setServiceOrderReservationId('');
+              setIsServiceOrderOpen(true);
+            }}
+            className="px-4 py-2 text-xs font-bold bg-[#E67E22] hover:bg-[#D35400] text-white rounded-xl transition duration-150 border border-transparent hover:scale-[1.02] cursor-pointer flex items-center space-x-1.5 shadow-md"
+            title="Place Room Service or Client Order"
+          >
+            <ShoppingCart className="h-4 w-4 text-white" />
+            <span>Place Client Order</span>
+          </button>
         </div>
       </div>
 
@@ -281,11 +336,53 @@ export default function FrontOffice() {
               />
             </div>
 
+            {/* Printable Front Desk Booking Report Builder */}
+            <div className="flex items-center justify-between bg-slate-50 p-3.5 rounded-xl border border-gray-150 text-xs">
+              <div className="flex items-center space-x-2">
+                <span className="p-1.5 bg-blue-50 text-[#1B4F72] rounded-lg">
+                  <Printer className="h-4 w-4" />
+                </span>
+                <div>
+                  <strong className="text-gray-700 block">Front Desk Booking Report Builder</strong>
+                  <span className="text-[10px] text-gray-400 font-medium">Select specific active guest bookings below to compile a printable guest ledger / booking statement.</span>
+                </div>
+              </div>
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  onClick={() => handleSelectAllReservations(filteredBookings)}
+                  className="px-2.5 py-1.5 bg-white text-gray-600 border border-gray-200 hover:bg-gray-50 rounded-xl text-xs font-semibold cursor-pointer"
+                >
+                  {filteredBookings.length > 0 && filteredBookings.every(r => selectedReservationIds.includes(r.id)) ? 'Deselect All' : 'Select All'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handlePrintFrontDeskReport}
+                  disabled={selectedReservationIds.length === 0}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1 transition shadow-sm ${
+                    selectedReservationIds.length > 0
+                      ? 'bg-[#1B4F72] hover:bg-[#153E5B] text-white cursor-pointer'
+                      : 'bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200'
+                  }`}
+                >
+                  <Printer className="h-3.5 w-3.5" /> Print Selected ({selectedReservationIds.length})
+                </button>
+              </div>
+            </div>
+
             {/* List Table */}
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="border-b border-gray-100 text-[10px] font-bold text-gray-400 uppercase tracking-wider bg-gray-50/50">
+                    <th className="py-3 px-4 w-10 text-center">
+                      <input
+                        type="checkbox"
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer h-3.5 w-3.5"
+                        checked={filteredBookings.length > 0 && filteredBookings.every(r => selectedReservationIds.includes(r.id))}
+                        onChange={() => handleSelectAllReservations(filteredBookings)}
+                      />
+                    </th>
                     <th className="py-3 px-4">Guest</th>
                     <th className="py-3 px-4">Room Location</th>
                     <th className="py-3 px-4">Dates</th>
@@ -297,7 +394,7 @@ export default function FrontOffice() {
                 <tbody className="divide-y divide-gray-100 text-xs">
                   {filteredBookings.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="py-12 text-center text-gray-400">
+                      <td colSpan={7} className="py-12 text-center text-gray-400">
                         No reservations matching criteria were found.
                       </td>
                     </tr>
@@ -307,9 +404,18 @@ export default function FrontOffice() {
                       const room = db.rooms.find(r => r.id === res.roomId);
                       const roomType = room ? db.roomTypes.find(t => t.id === room.roomTypeId) : null;
                       const balance = res.totalAmount - res.amountPaid;
+                      const isSelected = selectedReservationIds.includes(res.id);
 
                       return (
-                        <tr key={res.id} className="hover:bg-gray-50/30">
+                        <tr key={res.id} className={`hover:bg-gray-50/30 ${isSelected ? 'bg-blue-50/20' : ''}`}>
+                          <td className="py-4 px-4 text-center">
+                            <input
+                              type="checkbox"
+                              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer h-3.5 w-3.5"
+                              checked={isSelected}
+                              onChange={() => handleToggleReservationSelection(res.id)}
+                            />
+                          </td>
                           <td className="py-4 px-4 font-semibold text-gray-800">
                             <div>
                               <span>{guest?.firstName} {guest?.lastName}</span>
@@ -359,6 +465,18 @@ export default function FrontOffice() {
                               )}
                               {res.status === 'Checked In' && (
                                 <>
+                                  <button
+                                    onClick={() => {
+                                      setServiceOrderRoomNumber(room?.roomNumber || '');
+                                      setServiceOrderReservationId(res.id);
+                                      setIsServiceOrderOpen(true);
+                                    }}
+                                    className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-[11px] transition cursor-pointer flex items-center space-x-1 shadow-sm animate-pulse"
+                                    title="Create Client Order"
+                                  >
+                                    <ShoppingCart className="h-3.5 w-3.5 text-white" />
+                                    <span>Place Order</span>
+                                  </button>
                                   <button
                                     onClick={() => {
                                       setSelectedRes(res);
@@ -960,6 +1078,14 @@ export default function FrontOffice() {
           </div>
         </div>
       )}
+
+      {/* SERVICE ORDER BUILDER MODAL */}
+      <ServiceOrderModal
+        isOpen={isServiceOrderOpen}
+        onClose={() => setIsServiceOrderOpen(false)}
+        targetRoomNumber={serviceOrderRoomNumber}
+        targetReservationId={serviceOrderReservationId}
+      />
 
     </div>
   );

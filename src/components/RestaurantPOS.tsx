@@ -543,9 +543,20 @@ export default function RestaurantPOS() {
 
     // Also trigger the professional print preview window/tab
     try {
+      let defaultWidth: '58mm' | '80mm' = '80mm';
+      try {
+        const defaultPrinters = store.getPrinters ? store.getPrinters() : [];
+        const cashierPrinter = defaultPrinters.find(p => p.department === 'Cashier' && p.isDefault);
+        if (cashierPrinter?.type) {
+          defaultWidth = cashierPrinter.type as '58mm' | '80mm';
+        }
+      } catch (err) {
+        console.error('Failed to read default printer width:', err);
+      }
+
       if (type === 'Customer Receipt') {
-        const receiptHtml = getCustomerReceiptHTML(order, '80mm');
-        launchPrintPreview('Customer Receipt', `Customer Receipt - #${order.orderNumber || order.id}`, receiptHtml);
+        const receiptHtml = getCustomerReceiptHTML(order, defaultWidth);
+        launchPrintPreview('Customer Receipt', `Customer Receipt - #${order.orderNumber || order.id}`, receiptHtml, 1, defaultWidth);
       } else if (type === 'KOT') {
         const containsFood = order.items.some(it => !isDrinkItem(it.menuItemId));
         const containsDrinks = order.items.some(it => isDrinkItem(it.menuItemId));
@@ -556,7 +567,18 @@ export default function RestaurantPOS() {
             items: order.items.filter(it => !isDrinkItem(it.menuItemId))
           };
           const kotHtml = getKitchenOrderTicketHTML(foodOrder);
-          launchPrintPreview('KOT', `Kitchen Order Ticket - #${order.orderNumber || order.id}`, kotHtml);
+          // Find Kitchen printer width preference
+          let kitchenWidth: '58mm' | '80mm' = '80mm';
+          try {
+            const defaultPrinters = store.getPrinters ? store.getPrinters() : [];
+            const kitchenPrinter = defaultPrinters.find(p => p.department === 'Kitchen' && p.isDefault);
+            if (kitchenPrinter?.type) {
+              kitchenWidth = kitchenPrinter.type as '58mm' | '80mm';
+            }
+          } catch (err) {
+            console.error('Failed to read kitchen printer width:', err);
+          }
+          launchPrintPreview('KOT', `Kitchen Order Ticket - #${order.orderNumber || order.id}`, kotHtml, 1, kitchenWidth);
         }
         if (containsDrinks) {
           const drinkOrder = {
@@ -564,7 +586,18 @@ export default function RestaurantPOS() {
             items: order.items.filter(it => isDrinkItem(it.menuItemId))
           };
           const botHtml = getBarOrderTicketHTML(drinkOrder);
-          launchPrintPreview('BOT', `Bar Order Ticket - #${order.orderNumber || order.id}`, botHtml);
+          // Find Bar printer width preference
+          let barWidth: '58mm' | '80mm' = '80mm';
+          try {
+            const defaultPrinters = store.getPrinters ? store.getPrinters() : [];
+            const barPrinter = defaultPrinters.find(p => p.department === 'Bar' && p.isDefault);
+            if (barPrinter?.type) {
+              barWidth = barPrinter.type as '58mm' | '80mm';
+            }
+          } catch (err) {
+            console.error('Failed to read bar printer width:', err);
+          }
+          launchPrintPreview('BOT', `Bar Order Ticket - #${order.orderNumber || order.id}`, botHtml, 1, barWidth);
         }
       }
     } catch (e) {

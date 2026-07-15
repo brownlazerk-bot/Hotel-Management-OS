@@ -4,7 +4,7 @@
  */
 
 import { store } from '../db/store';
-import { Permission, RoleName, RestaurantOrder, PurchaseOrder, USBPrinterConfig } from '../types';
+import { Permission, RoleName, RestaurantOrder, PurchaseOrder, USBPrinterConfig, InventoryProduct, Room, Reservation } from '../types';
 
 // Helper to check if user has access to print specific document types
 export function canUserPrint(docType: string): { allowed: boolean; message?: string } {
@@ -50,12 +50,13 @@ export function canUserPrint(docType: string): { allowed: boolean; message?: str
   return { allowed: true };
 }
 
-// Global print handler that formats and launches browser Print Preview
+/// Global print handler that formats and launches browser Print Preview
 export function launchPrintPreview(
   docType: string, 
   title: string, 
   htmlContent: string, 
-  copies: number = 1
+  copies: number = 1,
+  printerWidth?: '58mm' | '80mm'
 ) {
   const auth = canUserPrint(docType);
   if (!auth.allowed) {
@@ -93,6 +94,20 @@ export function launchPrintPreview(
     taxRate: 12
   };
 
+  // Determine initial printer width preference
+  let defaultWidth: '58mm' | '80mm' = printerWidth || '80mm';
+  try {
+    const defaultPrinters = store.getPrinters ? store.getPrinters() : [];
+    const cashierPrinter = defaultPrinters.find(p => ['Cashier', 'Reception', 'Front Desk', 'FrontOffice'].includes(p.department) && p.isDefault);
+    if (cashierPrinter?.type) {
+      defaultWidth = cashierPrinter.type as '58mm' | '80mm';
+    }
+  } catch (err) {
+    console.error('Failed to read default printer preference:', err);
+  }
+
+  const isThermal = ['Customer Receipt', 'KOT', 'BOT', 'Invoice'].includes(docType);
+
   printWindow.document.write(`
     <!DOCTYPE html>
     <html lang="en">
@@ -105,10 +120,14 @@ export function launchPrintPreview(
         
         body {
           font-family: 'Inter', sans-serif;
-          background-color: #f3f4f6;
-          color: #1f2937;
+          background-color: #f1f5f9;
+          color: #1e293b;
           margin: 0;
-          padding: 0;
+          padding: 24px;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          min-height: 100vh;
           -webkit-print-color-adjust: exact;
           print-color-adjust: exact;
         }
@@ -117,42 +136,81 @@ export function launchPrintPreview(
           font-family: 'JetBrains Mono', monospace;
         }
 
+        /* Screen Preview Thermal Roll styling */
+        @media screen {
+          .thermal-roll {
+            background-color: #ffffff !important;
+            border: 1px solid #e2e8f0;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+            border-bottom: 8px dashed #cbd5e1 !important; /* jag tear edge appearance */
+            border-radius: 4px;
+            transition: all 0.2s ease-in-out;
+            margin: 0 auto !important;
+            height: auto !important;
+          }
+          
+          .standard-doc {
+            background-color: #ffffff !important;
+            border: 1px solid #e2e8f0;
+            box-shadow: 0 10px 35px rgba(0, 0, 0, 0.05);
+            border-radius: 16px;
+            padding: 32px;
+            width: 100%;
+            max-width: 1000px;
+          }
+        }
+
+        /* Print-specific rules */
         @media print {
           body {
             background-color: #ffffff !important;
             color: #000000 !important;
             padding: 0 !important;
+            margin: 0 !important;
+            display: block !important;
+            height: auto !important;
           }
           .no-print {
             display: none !important;
+          }
+          .thermal-roll {
+            border: none !important;
+            box-shadow: none !important;
+            border-bottom: none !important;
+            background-color: #ffffff !important;
+            margin: 0 !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            height: auto !important;
           }
           .print-container {
             border: none !important;
             box-shadow: none !important;
             margin: 0 !important;
             padding: 0 !important;
+            background-color: #ffffff !important;
             width: 100% !important;
             max-width: 100% !important;
-            background-color: #ffffff !important;
+            height: auto !important;
           }
-          /* Custom sizes for thermal papers */
-          .receipt-58 {
-            width: 58mm !important;
-            max-width: 58mm !important;
-            padding: 2mm !important;
+          /* Prevent breaks inside thermal receipt blocks */
+          .thermal-roll, .thermal-roll *, .receipt-body, .receipt-body * {
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
           }
-          .receipt-80 {
-            width: 80mm !important;
-            max-width: 80mm !important;
-            padding: 4mm !important;
-          }
+        }
+      </style>
+      <style id="dynamic-page-size">
+        /* Dynamic @page properties updated by JS selection to optimize printer feed */
+        @media print {
           @page {
-            margin: 0.5cm;
+            size: ${isThermal ? defaultWidth : 'auto'} auto;
+            margin: 0mm;
           }
         }
       </style>
     </head>
-    <body class="min-h-screen py-10 px-4 flex flex-col items-center">
+    <body>
       
       <!-- TOOLBAR (Hidden during print) -->
       <div class="no-print bg-white border border-gray-200 p-4 rounded-2xl shadow-md w-full max-w-4xl mb-6 flex flex-col sm:flex-row justify-between items-center gap-4">
@@ -167,6 +225,19 @@ export function launchPrintPreview(
             <p class="text-[11px] text-gray-400">Previewing: <span class="font-bold text-gray-600">${title}</span> (${docType})</p>
           </div>
         </div>
+
+        ${isThermal ? `
+        <!-- THERMAL PAPER SELECTOR (Hidden on print) -->
+        <div class="flex items-center space-x-2 bg-slate-100 p-1.5 rounded-xl border border-slate-200">
+          <span class="text-[10px] uppercase font-bold text-slate-500 px-2">Printer Width:</span>
+          <button id="btn-58" onclick="setPaperWidth('58mm')" class="px-3 py-1.5 text-xs font-semibold rounded-lg cursor-pointer bg-gray-100 text-gray-600 hover:bg-gray-200 hover:text-gray-800 transition">
+            58mm Roll
+          </button>
+          <button id="btn-80" onclick="setPaperWidth('80mm')" class="px-3 py-1.5 text-xs font-semibold rounded-lg cursor-pointer bg-gray-100 text-gray-600 hover:bg-gray-200 hover:text-gray-800 transition">
+            80mm Roll
+          </button>
+        </div>
+        ` : ''}
         
         <div class="flex items-center space-x-2 w-full sm:w-auto">
           <button onclick="window.print()" class="flex-1 sm:flex-initial px-4 py-2 bg-[#1B4F72] hover:bg-[#153E5B] text-white text-xs font-bold rounded-xl cursor-pointer transition flex items-center justify-center">
@@ -182,9 +253,7 @@ export function launchPrintPreview(
       </div>
 
       <!-- MAIN PREVIEW CONTAINER -->
-      <div class="print-container bg-white border border-gray-200 p-8 sm:p-12 rounded-3xl shadow-lg w-full ${
-        ['Customer Receipt', 'KOT', 'BOT'].includes(docType) ? 'max-w-md receipt-body' : 'max-w-4xl'
-      }">
+      <div id="print-container" class="${isThermal ? 'thermal-roll' : 'standard-doc'}">
         ${htmlContent}
       </div>
 
@@ -194,11 +263,64 @@ export function launchPrintPreview(
       </div>
 
       <script>
-        // Trigger print immediately on load
+        function setPaperWidth(width) {
+          // Update @page CSS block to instruct printer drivers
+          const styleEl = document.getElementById('dynamic-page-size');
+          if (styleEl) {
+            styleEl.innerHTML = '@media print { @page { size: ' + width + ' auto; margin: 0mm; } }';
+          }
+          
+          // Re-style screen container and inner receipt elements
+          const container = document.getElementById('print-container');
+          if (container) {
+            if (width === '58mm') {
+              container.style.width = '58mm';
+              container.style.maxWidth = '58mm';
+              container.style.padding = '3mm';
+              container.style.fontSize = '11px';
+              
+              container.querySelectorAll('.receipt-body').forEach(el => {
+                el.style.fontSize = '10px';
+                el.classList.add('text-[10px]');
+                el.classList.remove('text-xs', 'text-sm');
+              });
+            } else {
+              container.style.width = '80mm';
+              container.style.maxWidth = '80mm';
+              container.style.padding = '6mm';
+              container.style.fontSize = '13px';
+              
+              container.querySelectorAll('.receipt-body').forEach(el => {
+                el.style.fontSize = '12px';
+                el.classList.add('text-xs');
+                el.classList.remove('text-[10px]', 'text-sm');
+              });
+            }
+          }
+          
+          // Toggle button styles
+          const btn58 = document.getElementById('btn-58');
+          const btn80 = document.getElementById('btn-80');
+          if (btn58 && btn80) {
+            if (width === '58mm') {
+              btn58.className = 'px-3 py-1.5 text-xs font-black rounded-lg cursor-pointer bg-[#1B4F72] text-white shadow-sm';
+              btn80.className = 'px-3 py-1.5 text-xs font-semibold rounded-lg cursor-pointer bg-slate-200 text-slate-700 hover:bg-slate-300 transition';
+            } else {
+              btn80.className = 'px-3 py-1.5 text-xs font-black rounded-lg cursor-pointer bg-[#1B4F72] text-white shadow-sm';
+              btn58.className = 'px-3 py-1.5 text-xs font-semibold rounded-lg cursor-pointer bg-slate-200 text-slate-700 hover:bg-slate-300 transition';
+            }
+          }
+        }
+
+        // Initialize and trigger print preview dialog after styles have settled
         window.onload = function() {
+          const isThermalDoc = ${isThermal};
+          if (isThermalDoc) {
+            setPaperWidth('${defaultWidth}');
+          }
           setTimeout(function() {
             window.print();
-          }, 350);
+          }, 600);
         };
       </script>
     </body>
@@ -218,18 +340,14 @@ export function getCustomerReceiptHTML(order: any, printerWidth: '58mm' | '80mm'
     taxRate: 12
   };
 
-  const is80 = printerWidth === '80mm';
-  const widthClass = is80 ? 'w-full max-w-[80mm]' : 'w-full max-w-[58mm] text-xs';
-  
   const formattedItems = order.items.map((it: any) => {
     const itemTotal = it.price * it.quantity;
     return `
-      <div class="flex justify-between items-start py-1">
-        <div class="flex-1 pr-2">
-          <div class="font-bold">${it.name}</div>
-          <div class="text-[10px] text-gray-500">${it.quantity} x ${store.formatMoney(it.price)}</div>
-        </div>
-        <div class="font-bold shrink-0 text-right font-mono">${store.formatMoney(itemTotal)}</div>
+      <div class="grid grid-cols-12 gap-1 py-1 text-[11px] items-start border-b border-dotted border-gray-100">
+        <div class="col-span-6 font-semibold break-words leading-tight">${it.name}</div>
+        <div class="col-span-2 text-center font-mono font-medium">${it.quantity}</div>
+        <div class="col-span-2 text-right font-mono text-gray-500">${store.formatMoney(it.price)}</div>
+        <div class="col-span-2 text-right font-mono font-bold text-black">${store.formatMoney(itemTotal)}</div>
       </div>
     `;
   }).join('');
@@ -242,7 +360,7 @@ export function getCustomerReceiptHTML(order: any, printerWidth: '58mm' | '80mm'
   `;
 
   return `
-    <div class="receipt-body mx-auto text-black flex flex-col items-center ${widthClass}">
+    <div class="receipt-body mx-auto text-black flex flex-col items-center w-full">
       
       <!-- LOGO / EMOJI -->
       <div class="text-3xl mb-1 text-center font-bold">🏨</div>
@@ -295,9 +413,11 @@ export function getCustomerReceiptHTML(order: any, printerWidth: '58mm' | '80mm'
 
       <!-- ITEM LIST -->
       <div class="w-full py-3 border-b border-dashed border-gray-300 text-[11px]">
-        <div class="flex justify-between font-bold border-b border-dashed border-gray-200 pb-1 mb-1.5 uppercase">
-          <span>Itemized Desc</span>
-          <span>Total</span>
+        <div class="grid grid-cols-12 gap-1 font-bold border-b border-dashed border-gray-200 pb-1 mb-1.5 uppercase text-[10px] text-gray-500">
+          <div class="col-span-6">Item Name</div>
+          <div class="col-span-2 text-center">Qty</div>
+          <div class="col-span-2 text-right">Price</div>
+          <div class="col-span-2 text-right text-black">Subtotal</div>
         </div>
         ${formattedItems}
       </div>
@@ -368,7 +488,7 @@ export function getKitchenOrderTicketHTML(order: any): string {
   `).join('');
 
   return `
-    <div class="receipt-body mx-auto text-black w-full max-w-[80mm]">
+    <div class="receipt-body mx-auto text-black w-full">
       <div class="text-center border-b border-dashed border-gray-300 pb-3">
         <h2 class="text-lg font-black tracking-wide uppercase bg-black text-white py-1 px-3 inline-block rounded mb-2">KITCHEN COPY</h2>
         <div class="text-xs font-bold font-mono">KOT #${order.orderNumber || 'KOT-' + Date.now().toString().slice(-4)}</div>
@@ -412,7 +532,7 @@ export function getBarOrderTicketHTML(order: any): string {
   `).join('');
 
   return `
-    <div class="receipt-body mx-auto text-black w-full max-w-[80mm]">
+    <div class="receipt-body mx-auto text-black w-full">
       <div class="text-center border-b border-dashed border-gray-300 pb-3">
         <h2 class="text-lg font-black tracking-wide uppercase bg-black text-white py-1 px-3 inline-block rounded mb-2">BAR COUNTER COPY</h2>
         <div class="text-xs font-bold font-mono">BOT #${order.orderNumber ? order.orderNumber.replace('KOT', 'BOT') : 'BOT-' + Date.now().toString().slice(-4)}</div>
@@ -433,7 +553,7 @@ export function getBarOrderTicketHTML(order: any): string {
 
       ${order.specialInstructions ? `
         <div class="p-3 bg-gray-50 rounded-lg border border-dashed border-gray-300 font-mono text-xs mt-2">
-          <strong class="block text-[#1B4F72]">BAR INSTRUCTIONS:</strong>
+          <strong class="block text-red-600">SPECIAL INSTRUCTIONS:</strong>
           <span class="text-gray-800">${order.specialInstructions}</span>
         </div>
       ` : ''}
@@ -463,96 +583,114 @@ export function getCheckoutInvoiceHTML(guest: any, room: any, res: any, roomType
   const balanceDue = totalBilled - res.amountPaid;
 
   const chargeLines = charges.map(c => `
-    <tr class="border-b border-gray-100 text-xs hover:bg-gray-50/50">
-      <td class="py-3 text-gray-600 font-medium">${c.date}</td>
-      <td class="py-3 text-gray-800 font-bold">${c.description}</td>
-      <td class="py-3 text-right font-mono font-semibold text-gray-800">${store.formatMoney(c.amount)}</td>
-    </tr>
+    <div class="grid grid-cols-12 gap-1 py-1.5 text-[11px] items-start border-b border-dotted border-gray-100">
+      <div class="col-span-3 text-gray-500 font-mono text-[9px] mt-0.5">${c.date}</div>
+      <div class="col-span-6 font-semibold break-words leading-tight">${c.description}</div>
+      <div class="col-span-3 text-right font-mono font-bold">${store.formatMoney(c.amount)}</div>
+    </div>
   `).join('');
 
+  const qrCodeSvg = `
+    <svg class="mx-auto w-24 h-24 my-3 print:my-2" viewBox="0 0 29 29" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M0 0h7v7H0V0zm1 1v5h5V1H1zm2 2h1v1H3V3zm18-3h7v7h-7V0zm1 1v5h5V1h-5zm2 2h1v1h-1V3zM0 22h7v7H0v-7zm1 1v5h5v-5H1zm2 2h1v1H3v-1zm10-14h1v1h-1v-1zm1 1h1v1h-1v-1zm2 0h1v1h-1v-1zm2-2h1v1h-1v-1zm1 1h1v1h-1v-1zm1 1h1v1h-1v-1zm-3 2h1v1h-1v-1zm2 0h1v1h-1v-1zm-4 2h1v1h-1v-1zm1 1h1v1h-1v-1zm1 1h1v1h-1v-1zm-3-4h1v1h-1v-1zm-2 2h1v1h-1v-1zm1 1h1v1h-1v-1zm4-6h1v1h-1v-1zm1 1h1v1h-1v-1zm1-1h1v1h-1v-1zm1 1h1v1h-1v-1zm-5 4h1v1h-1v-1zm2 1h1v1h-1v-1zm-3 3h1v1h-1v-1zm-1-1h1v1h-1v-1zm-1 2h1v1h-1v-1zm4 1h1v1h-1v-1z" fill="black"/>
+    </svg>
+  `;
+
   return `
-    <div class="space-y-8 text-slate-800">
+    <div class="receipt-body mx-auto text-black flex flex-col items-center w-full">
       
-      <!-- INVOICE HEADER -->
-      <div class="flex flex-col md:flex-row justify-between items-start md:items-center border-b border-gray-150 pb-6 gap-4">
-        <div>
-          <span class="text-3xl font-black">🏨</span>
-          <h1 class="text-xl font-black uppercase text-slate-900 tracking-wider mt-2">${profile.name}</h1>
-          <p class="text-xs text-slate-400 mt-1">Tax Registration No: <strong class="text-slate-600">${profile.taxNumber}</strong></p>
-          <p class="text-xs text-slate-400">Address: ${profile.address} • Ph: ${profile.phone}</p>
+      <!-- LOGO / EMOJI -->
+      <div class="text-3xl mb-1 text-center font-bold">🏨</div>
+      
+      <!-- HOTEL DETAILS -->
+      <h2 class="text-base font-extrabold text-center uppercase tracking-wider">${profile.name}</h2>
+      <div class="text-[10px] text-center space-y-0.5 mt-1 border-b border-dashed border-gray-300 pb-3 w-full">
+        <div>TIN: ${profile.taxNumber}</div>
+        <div>Address: ${profile.address}</div>
+        <div>Phone: ${profile.phone}</div>
+      </div>
+
+      <!-- TRANSACTION METADATA -->
+      <div class="text-[11px] py-3 space-y-1 w-full border-b border-dashed border-gray-300">
+        <div class="flex justify-between">
+          <span>Folio Invoice No:</span>
+          <strong class="font-bold font-mono">INV-FO-${res.id.slice(-6).toUpperCase()}</strong>
         </div>
-        
-        <div class="text-left md:text-right">
-          <div class="bg-[#1B4F72] text-white px-4 py-1.5 rounded-lg text-xs font-black inline-block tracking-wider uppercase mb-2">OFFICIAL FOLIO BILL</div>
-          <p class="text-xs text-slate-400">Invoice No: <strong class="font-mono font-bold text-slate-800">INV-FO-${res.id.slice(-6).toUpperCase()}</strong></p>
-          <p class="text-xs text-slate-400">Date Posted: <strong class="text-slate-700">${new Date().toLocaleDateString()}</strong></p>
+        <div class="flex justify-between">
+          <span>Date Posted:</span>
+          <span>${new Date().toLocaleDateString()}</span>
+        </div>
+        <div class="flex justify-between">
+          <span>Room Assigned:</span>
+          <strong class="font-bold">Room ${room?.roomNumber || 'N/A'}</strong>
+        </div>
+        <div class="flex justify-between">
+          <span>Room Type:</span>
+          <span>${roomType?.name || 'Standard'}</span>
+        </div>
+        <div class="flex justify-between">
+          <span>Duration:</span>
+          <span>${nights} nights (${res.checkInDate} to ${res.checkOutDate})</span>
+        </div>
+        <div class="flex justify-between">
+          <span>Guest Name:</span>
+          <span class="font-semibold">${guest?.firstName || ''} ${guest?.lastName || 'Resort Guest'}</span>
+        </div>
+        <div class="flex justify-between">
+          <span>Cashier:</span>
+          <span>${store.getActiveUser()?.name || 'Marcus Brody'}</span>
         </div>
       </div>
 
-      <!-- BILL TO & RESERVATION DETAILS -->
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-6 bg-slate-50/50 p-6 rounded-2xl border border-gray-150">
-        <div class="text-xs space-y-1">
-          <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-2">Guest Profile</span>
-          <p class="text-sm font-black text-slate-900">${guest?.firstName || ''} ${guest?.lastName || 'Resort Guest'}</p>
-          <p class="text-slate-500">Email: ${guest?.email || 'N/A'}</p>
-          <p class="text-slate-500">ID/Passport: ${guest?.identityNumber || 'N/A'}</p>
-          <p class="text-slate-500">Contact Number: ${guest?.phone || 'N/A'}</p>
+      <!-- ITEM LIST -->
+      <div class="w-full py-3 border-b border-dashed border-gray-300 text-[11px]">
+        <div class="grid grid-cols-12 gap-1 font-bold border-b border-dashed border-gray-200 pb-1 mb-1.5 uppercase text-[10px] text-gray-500">
+          <div class="col-span-3">Date</div>
+          <div class="col-span-6">Description / Folio Code</div>
+          <div class="col-span-3 text-right text-black">Amount</div>
         </div>
+        ${chargeLines}
+      </div>
 
-        <div class="text-xs space-y-1">
-          <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-2">Booking Folio</span>
-          <p class="text-slate-700 font-bold">Room Assigned: Room ${room?.roomNumber || 'N/A'} (${roomType?.name || 'Standard'})</p>
-          <p class="text-slate-500">Check-In Date: ${res.checkInDate}</p>
-          <p class="text-slate-500">Check-Out Date: ${res.checkOutDate}</p>
-          <p class="text-slate-500">Total Duration: ${nights} nights</p>
+      <!-- FINANCIAL TOTALS -->
+      <div class="w-full py-3 border-b border-dashed border-gray-300 text-[11px] space-y-1">
+        <div class="flex justify-between">
+          <span>Subtotal:</span>
+          <span class="font-mono">${store.formatMoney(subtotal)}</span>
+        </div>
+        <div class="flex justify-between">
+          <span>VAT (${profile.taxRate || 12}%):</span>
+          <span class="font-mono">${store.formatMoney(taxAmount)}</span>
+        </div>
+        <div class="flex justify-between text-sm font-extrabold uppercase border-t border-dashed border-gray-200 pt-1.5">
+          <span>Total Billed:</span>
+          <strong class="font-bold text-base font-mono">${store.formatMoney(totalBilled)}</strong>
         </div>
       </div>
 
-      <!-- TRANSACTION LEDGER TABLE -->
-      <div class="space-y-2">
-        <h3 class="text-xs font-black text-slate-900 uppercase tracking-wider">Itemized Account Summary</h3>
-        <table class="w-full text-left">
-          <thead>
-            <tr class="border-b border-gray-200 text-[10px] font-black uppercase text-slate-400 tracking-wider">
-              <th class="pb-2">Date</th>
-              <th class="pb-2">Description / Revenue Code</th>
-              <th class="pb-2 text-right">Amount</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${chargeLines}
-          </tbody>
-        </table>
+      <!-- PAYMENT DETAILS -->
+      <div class="w-full py-3 border-b border-dashed border-gray-300 text-[11px] space-y-1">
+        <div class="flex justify-between font-bold text-emerald-700">
+          <span>Payments Settled:</span>
+          <span class="font-mono">-${store.formatMoney(res.amountPaid)}</span>
+        </div>
+        <div class="flex justify-between border-t border-double border-gray-200 pt-1.5 text-sm font-black text-slate-900">
+          <span>Balance Outstanding:</span>
+          <strong class="font-mono ${balanceDue > 0 ? 'text-red-600' : 'text-gray-800'}">${store.formatMoney(balanceDue)}</strong>
+        </div>
       </div>
 
-      <!-- BILLING DETAILS & BALANCES -->
-      <div class="flex flex-col md:flex-row justify-between items-start gap-4 pt-4 border-t border-gray-150">
-        <div class="text-[11px] text-slate-400 max-w-sm italic">
-          Terms & Conditions: All outstanding room charges, mini-bar expenses, spa fees, and tax balances must be cleared at checkout.
-        </div>
-        
-        <div class="w-full md:w-80 text-xs space-y-2">
-          <div class="flex justify-between">
-            <span class="text-slate-500">Subtotal Room Charges:</span>
-            <span class="font-mono text-slate-800 font-semibold">${store.formatMoney(subtotal)}</span>
-          </div>
-          <div class="flex justify-between">
-            <span class="text-slate-500">VAT (${profile.taxRate || 12}%):</span>
-            <span class="font-mono text-slate-800 font-semibold">${store.formatMoney(taxAmount)}</span>
-          </div>
-          <div class="flex justify-between border-t border-gray-150 pt-2 text-sm font-extrabold text-slate-900">
-            <span>Total Folio Amount:</span>
-            <strong class="font-mono font-bold">${store.formatMoney(totalBilled)}</strong>
-          </div>
-          <div class="flex justify-between text-emerald-700 font-semibold">
-            <span>Payments Settled:</span>
-            <strong class="font-mono">-${store.formatMoney(res.amountPaid)}</strong>
-          </div>
-          <div class="flex justify-between border-t border-double border-gray-200 pt-2 text-base font-black text-slate-900">
-            <span>Balance Outstanding:</span>
-            <strong class="font-mono text-red-600">${store.formatMoney(balanceDue)}</strong>
-          </div>
-        </div>
+      <!-- QR CODE -->
+      <div class="text-center w-full pt-2">
+        <div class="text-[9px] text-gray-400 tracking-wider">SECURE DIGITAL VERIFICATION</div>
+        ${qrCodeSvg}
+        <div class="text-[8px] font-mono text-gray-400 mt-1">SEC-KEY: FO-${Math.random().toString(36).slice(2, 10).toUpperCase()}</div>
+      </div>
+
+      <!-- FOOTER THANK YOU -->
+      <div class="text-[10px] text-center font-bold mt-4 space-y-1 w-full pt-3 border-t border-dashed border-gray-300">
+        <div>Thank you for staying at Grand Horizon Resort!</div>
+        <div class="text-gray-500 font-normal">Have a safe and pleasant journey back!</div>
       </div>
 
     </div>
@@ -1604,3 +1742,440 @@ export function getAnnualReportHTML(data: any): string {
     </div>
   `;
 }
+
+// 20. MASTER STOCK & INVENTORY REGISTRY REPORT
+export function getInventorySelectedReportHTML(products: InventoryProduct[]): string {
+  const db = store.getDb();
+  const profile = db.settings?.profile || {
+    name: "The Grand Horizon Resort & Spa",
+    address: "777 Serenity Boulevard, Oceanside",
+    phone: "+1 (555) 777-8888",
+    taxNumber: "TIN-984-110A"
+  };
+
+  const totalItems = products.length;
+  const totalValuation = products.reduce((acc, p) => acc + (p.currentStock * p.unitPrice), 0);
+  const lowStockCount = products.filter(p => p.currentStock <= p.minStockAlert).length;
+
+  const itemRows = products.map((p, idx) => {
+    const isLow = p.currentStock <= p.minStockAlert;
+    const value = p.currentStock * p.unitPrice;
+    return `
+      <tr class="border-b border-gray-100 text-xs hover:bg-gray-50/50">
+        <td class="py-3 text-slate-500 font-mono text-[10px]">${idx + 1}</td>
+        <td class="py-3">
+          <strong class="text-slate-800 text-xs block">${p.name}</strong>
+          <span class="text-[9px] text-gray-400 font-mono">ID: ${p.id}</span>
+        </td>
+        <td class="py-3">
+          <span class="bg-slate-100 text-slate-600 px-2 py-0.5 rounded text-[10px] font-bold">
+            ${p.category}
+          </span>
+        </td>
+        <td class="py-3 text-slate-500 font-medium">${p.warehouseLocation || 'N/A'}</td>
+        <td class="py-3 font-mono text-center">${p.currentStock} <span class="text-[10px] text-gray-400">/ ${p.minStockAlert}</span></td>
+        <td class="py-3 font-mono text-right">${store.formatMoney(p.unitPrice)}</td>
+        <td class="py-3 font-mono text-right font-semibold text-slate-900">${store.formatMoney(value)}</td>
+        <td class="py-3 text-center">
+          ${isLow ? `
+            <span class="bg-red-50 text-red-700 font-bold border border-red-100 px-1.5 py-0.5 rounded text-[10px]">
+              LOW STOCK
+            </span>
+          ` : `
+            <span class="bg-green-50 text-green-700 font-bold border border-green-100 px-1.5 py-0.5 rounded text-[10px]">
+              SECURE
+            </span>
+          `}
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  return `
+    <div class="space-y-8 text-slate-800">
+      <!-- HEADER -->
+      <div class="flex justify-between items-center border-b border-gray-150 pb-6">
+        <div>
+          <span class="text-3xl">📋</span>
+          <h1 class="text-xl font-black uppercase text-slate-900 tracking-wider mt-2">${profile.name}</h1>
+          <p class="text-xs text-slate-400">Inventory Management & Stock Registry Report</p>
+        </div>
+        <div class="text-right">
+          <div class="bg-blue-600 text-white px-4 py-1.5 rounded-lg text-xs font-black inline-block tracking-wider uppercase mb-2">STOCK REPORT</div>
+          <p class="text-xs text-slate-400">Generated: <strong class="text-slate-700">${new Date().toLocaleString()}</strong></p>
+          <p class="text-xs text-slate-400">User: <strong class="text-slate-700">${store.getActiveUser()?.name || 'Authorized Operator'}</strong></p>
+        </div>
+      </div>
+
+      <!-- KEY METRICS CARD -->
+      <div class="grid grid-cols-3 gap-4 text-xs">
+        <div class="p-4 bg-slate-50 border border-slate-150 rounded-xl">
+          <span class="text-slate-400 font-bold block uppercase text-[9px] tracking-wider">Total Items Logged</span>
+          <strong class="text-base font-black text-slate-800 font-mono">${totalItems} items</strong>
+        </div>
+        <div class="p-4 bg-slate-50 border border-slate-150 rounded-xl">
+          <span class="text-slate-400 font-bold block uppercase text-[9px] tracking-wider">Estimated Stock Value</span>
+          <strong class="text-base font-black text-emerald-700 font-mono">${store.formatMoney(totalValuation)}</strong>
+        </div>
+        <div class="p-4 bg-red-50/50 border border-red-100 rounded-xl">
+          <span class="text-red-400 font-bold block uppercase text-[9px] tracking-wider">Low Stock Warnings</span>
+          <strong class="text-base font-black text-red-600 font-mono">${lowStockCount} items</strong>
+        </div>
+      </div>
+
+      <!-- DATA TABLE -->
+      <div class="space-y-2">
+        <h3 class="text-xs font-black text-slate-900 uppercase tracking-wider">Product Inventory Register</h3>
+        <table class="w-full text-left">
+          <thead>
+            <tr class="border-b border-gray-200 text-[10px] font-black uppercase text-slate-400 tracking-wider">
+              <th class="pb-2 w-10">No.</th>
+              <th class="pb-2">Product Name</th>
+              <th class="pb-2">Category</th>
+              <th class="pb-2">Location</th>
+              <th class="pb-2 text-center">Stock / Min</th>
+              <th class="pb-2 text-right">Unit Price</th>
+              <th class="pb-2 text-right">Total Value</th>
+              <th class="pb-2 text-center w-24">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${itemRows}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="text-center text-[10px] text-gray-400 italic pt-6 border-t border-gray-150">
+        Confidential Stock Level Registry. System audit trails preserved automatically.
+      </div>
+    </div>
+  `;
+}
+
+// 21. SELECTED PROCUREMENT ORDERS REPORT
+export function getProcurementSelectedReportHTML(orders: PurchaseOrder[]): string {
+  const db = store.getDb();
+  const profile = db.settings?.profile || {
+    name: "The Grand Horizon Resort & Spa",
+    address: "777 Serenity Boulevard, Oceanside",
+    phone: "+1 (555) 777-8888",
+    taxNumber: "TIN-984-110A"
+  };
+
+  const totalOrders = orders.length;
+  const totalAmount = orders.reduce((acc, o) => acc + o.totalAmount, 0);
+  const receivedCount = orders.filter(o => o.status === 'Received').length;
+  const pendingCount = totalOrders - receivedCount;
+
+  const itemRows = orders.map((o, idx) => {
+    const supplier = db.suppliers.find(s => s.id === o.supplierId);
+    const itemsSummary = o.items.map(it => `${it.quantity}x ${it.name}`).join(', ');
+    return `
+      <tr class="border-b border-gray-100 text-xs hover:bg-gray-50/50">
+        <td class="py-3 text-slate-500 font-mono text-[10px]">${idx + 1}</td>
+        <td class="py-3">
+          <strong class="text-indigo-900 font-mono text-xs block">${o.id}</strong>
+          <span class="text-[9px] text-gray-400 block">Date: ${o.orderedDate}</span>
+        </td>
+        <td class="py-3 font-semibold text-slate-800">${supplier?.name || 'N/A'}</td>
+        <td class="py-3 text-slate-500 italic max-w-xs truncate">${itemsSummary}</td>
+        <td class="py-3 font-mono text-right font-bold text-slate-900">${store.formatMoney(o.totalAmount)}</td>
+        <td class="py-3 text-center">
+          <span class="px-2 py-0.5 rounded text-[10px] font-bold ${
+            o.status === 'Received' ? 'bg-green-50 text-green-700 border border-green-100' : 'bg-orange-50 text-orange-700 border border-orange-100'
+          }">
+            ${o.status}
+          </span>
+        </td>
+        <td class="py-3 text-center">
+          <span class="px-2 py-0.5 rounded text-[10px] font-bold ${
+            o.paymentStatus === 'Paid' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'
+          }">
+            ${o.paymentStatus}
+          </span>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  return `
+    <div class="space-y-8 text-slate-800">
+      <!-- HEADER -->
+      <div class="flex justify-between items-center border-b border-gray-150 pb-6">
+        <div>
+          <span class="text-3xl">📦</span>
+          <h1 class="text-xl font-black uppercase text-slate-900 tracking-wider mt-2">${profile.name}</h1>
+          <p class="text-xs text-slate-400">Procurement & Store Purchase Ledger Report</p>
+        </div>
+        <div class="text-right">
+          <div class="bg-indigo-600 text-white px-4 py-1.5 rounded-lg text-xs font-black inline-block tracking-wider uppercase mb-2">PROCUREMENT REPORT</div>
+          <p class="text-xs text-slate-400">Generated: <strong class="text-slate-700">${new Date().toLocaleString()}</strong></p>
+          <p class="text-xs text-slate-400">User: <strong class="text-slate-700">${store.getActiveUser()?.name || 'Authorized Operator'}</strong></p>
+        </div>
+      </div>
+
+      <!-- KEY METRICS CARD -->
+      <div class="grid grid-cols-3 gap-4 text-xs">
+        <div class="p-4 bg-slate-50 border border-slate-150 rounded-xl">
+          <span class="text-slate-400 font-bold block uppercase text-[9px] tracking-wider">Orders Selected</span>
+          <strong class="text-base font-black text-slate-800 font-mono">${totalOrders} POs</strong>
+        </div>
+        <div class="p-4 bg-slate-50 border border-slate-150 rounded-xl">
+          <span class="text-slate-400 font-bold block uppercase text-[9px] tracking-wider">Total Payout Value</span>
+          <strong class="text-base font-black text-indigo-700 font-mono">${store.formatMoney(totalAmount)}</strong>
+        </div>
+        <div class="p-4 bg-emerald-50/50 border border-emerald-100 rounded-xl">
+          <span class="text-emerald-400 font-bold block uppercase text-[9px] tracking-wider">Received Cargo Logs</span>
+          <strong class="text-base font-black text-emerald-700 font-mono">${receivedCount} Received / ${pendingCount} Pending</strong>
+        </div>
+      </div>
+
+      <!-- DATA TABLE -->
+      <div class="space-y-2">
+        <h3 class="text-xs font-black text-slate-900 uppercase tracking-wider">Procurement Purchase Orders Register</h3>
+        <table class="w-full text-left">
+          <thead>
+            <tr class="border-b border-gray-200 text-[10px] font-black uppercase text-slate-400 tracking-wider">
+              <th class="pb-2 w-10">No.</th>
+              <th class="pb-2">PO ID / Date</th>
+              <th class="pb-2">Supplier Vendor</th>
+              <th class="pb-2">Items Detail</th>
+              <th class="pb-2 text-right">Amount</th>
+              <th class="pb-2 text-center w-24">Order Status</th>
+              <th class="pb-2 text-center w-24">Payment</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${itemRows}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="text-center text-[10px] text-gray-400 italic pt-6 border-t border-gray-150">
+        Confidential Procurement Ledger Statement. Verified and certified internally.
+      </div>
+    </div>
+  `;
+}
+
+// 22. SELECTED ROOM INVENTORY REPORT
+export function getRoomSelectedReportHTML(rooms: Room[]): string {
+  const db = store.getDb();
+  const profile = db.settings?.profile || {
+    name: "The Grand Horizon Resort & Spa",
+    address: "777 Serenity Boulevard, Oceanside",
+    phone: "+1 (555) 777-8888",
+    taxNumber: "TIN-984-110A"
+  };
+
+  const totalRooms = rooms.length;
+  const availableRoomsCount = rooms.filter(r => r.status === 'Available').length;
+  const occupiedRoomsCount = rooms.filter(r => r.status === 'Occupied').length;
+  const otherRoomsCount = totalRooms - availableRoomsCount - occupiedRoomsCount;
+
+  const itemRows = rooms.map((rm, idx) => {
+    const typeObj = db.roomTypes.find(t => t.id === rm.roomTypeId);
+    return `
+      <tr class="border-b border-gray-100 text-xs hover:bg-gray-50/50">
+        <td class="py-3 text-slate-500 font-mono text-[10px]">${idx + 1}</td>
+        <td class="py-3 font-mono font-bold text-slate-800 text-sm">Room ${rm.roomNumber}</td>
+        <td class="py-3">
+          <strong class="text-slate-800 text-xs block">${rm.building}</strong>
+          <span class="text-[9px] text-gray-400">Floor: ${rm.floor}</span>
+        </td>
+        <td class="py-3">
+          <span class="bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded text-[10px] font-bold">
+            ${typeObj?.name || 'N/A'}
+          </span>
+        </td>
+        <td class="py-3 font-mono text-right font-semibold text-slate-900">
+          ${typeObj ? store.formatMoney(typeObj.basePrice) : 'N/A'}
+        </td>
+        <td class="py-3 text-center">
+          <span class="px-2 py-0.5 rounded text-[10px] font-bold ${
+            rm.status === 'Available' ? 'bg-green-50 text-green-700 border border-green-100' :
+            rm.status === 'Occupied' ? 'bg-blue-50 text-blue-700 border border-blue-100' :
+            rm.status === 'Reserved' ? 'bg-purple-50 text-purple-700 border border-purple-100' :
+            rm.status === 'Dirty' ? 'bg-orange-50 text-orange-700 border border-orange-100' :
+            rm.status === 'Cleaning' ? 'bg-yellow-50 text-yellow-700 border border-yellow-100' :
+            'bg-red-50 text-red-700 border border-red-100'
+          }">
+            ${rm.status}
+          </span>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  return `
+    <div class="space-y-8 text-slate-800">
+      <!-- HEADER -->
+      <div class="flex justify-between items-center border-b border-gray-150 pb-6">
+        <div>
+          <span class="text-3xl">🏨</span>
+          <h1 class="text-xl font-black uppercase text-slate-900 tracking-wider mt-2">${profile.name}</h1>
+          <p class="text-xs text-slate-400">Room Allocation & Operations Inventory Report</p>
+        </div>
+        <div class="text-right">
+          <div class="bg-[#1B4F72] text-white px-4 py-1.5 rounded-lg text-xs font-black inline-block tracking-wider uppercase mb-2">ROOM REPORT</div>
+          <p class="text-xs text-slate-400">Generated: <strong class="text-slate-700">${new Date().toLocaleString()}</strong></p>
+          <p class="text-xs text-slate-400">User: <strong class="text-slate-700">${store.getActiveUser()?.name || 'Authorized Operator'}</strong></p>
+        </div>
+      </div>
+
+      <!-- KEY METRICS CARD -->
+      <div class="grid grid-cols-3 gap-4 text-xs">
+        <div class="p-4 bg-slate-50 border border-slate-150 rounded-xl">
+          <span class="text-slate-400 font-bold block uppercase text-[9px] tracking-wider">Total Rooms Selected</span>
+          <strong class="text-base font-black text-slate-800 font-mono">${totalRooms} Rooms</strong>
+        </div>
+        <div class="p-4 bg-green-50/50 border border-green-100 rounded-xl">
+          <span class="text-green-500 font-bold block uppercase text-[9px] tracking-wider">Clean / Available</span>
+          <strong class="text-base font-black text-green-700 font-mono">${availableRoomsCount} Rooms</strong>
+        </div>
+        <div class="p-4 bg-blue-50/50 border border-blue-100 rounded-xl">
+          <span class="text-blue-500 font-bold block uppercase text-[9px] tracking-wider">Occupied / Registered</span>
+          <strong class="text-base font-black text-blue-700 font-mono">${occupiedRoomsCount} Rooms <span class="text-xs text-slate-400">(${otherRoomsCount} other)</span></strong>
+        </div>
+      </div>
+
+      <!-- DATA TABLE -->
+      <div class="space-y-2">
+        <h3 class="text-xs font-black text-slate-900 uppercase tracking-wider">Selected Room Inventory Register</h3>
+        <table class="w-full text-left">
+          <thead>
+            <tr class="border-b border-gray-200 text-[10px] font-black uppercase text-slate-400 tracking-wider">
+              <th class="pb-2 w-10">No.</th>
+              <th class="pb-2">Room Number</th>
+              <th class="pb-2">Building / Location</th>
+              <th class="pb-2">Room Category</th>
+              <th class="pb-2 text-right">Base Price / Night</th>
+              <th class="pb-2 text-center w-32">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${itemRows}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="text-center text-[10px] text-gray-400 italic pt-6 border-t border-gray-150">
+        Confidential Room Inventory Log. Generated securely in Cloud Session.
+      </div>
+    </div>
+  `;
+}
+
+// 23. SELECTED RESERVATIONS & BOOKINGS REPORT
+export function getFrontDeskSelectedReportHTML(reservations: Reservation[]): string {
+  const db = store.getDb();
+  const profile = db.settings?.profile || {
+    name: "The Grand Horizon Resort & Spa",
+    address: "777 Serenity Boulevard, Oceanside",
+    phone: "+1 (555) 777-8888",
+    taxNumber: "TIN-984-110A"
+  };
+
+  const totalBookings = reservations.length;
+  const totalAmount = reservations.reduce((acc, r) => acc + r.totalAmount, 0);
+  const totalPaid = reservations.reduce((acc, r) => acc + r.amountPaid, 0);
+  const totalPending = totalAmount - totalPaid;
+
+  const itemRows = reservations.map((res, idx) => {
+    const guest = db.guests.find(g => g.id === res.guestId);
+    const room = db.rooms.find(r => r.id === res.roomId);
+    const roomType = room ? db.roomTypes.find(t => t.id === room.roomTypeId) : null;
+    const balance = res.totalAmount - res.amountPaid;
+    return `
+      <tr class="border-b border-gray-100 text-xs hover:bg-gray-50/50">
+        <td class="py-3 text-slate-500 font-mono text-[10px]">${idx + 1}</td>
+        <td class="py-3">
+          <strong class="text-slate-800 text-xs block">${guest?.firstName || 'N/A'} ${guest?.lastName || 'N/A'}</strong>
+          <span class="text-[9px] text-gray-400 font-mono">${guest?.email || 'N/A'}</span>
+        </td>
+        <td class="py-3">
+          <strong class="text-slate-800 font-mono text-xs block">Room ${room?.roomNumber || 'N/A'}</strong>
+          <span class="text-[9px] text-gray-400">${roomType?.name || 'N/A'}</span>
+        </td>
+        <td class="py-3 font-mono text-slate-500 text-[11px]">
+          ${res.checkInDate} <span class="text-gray-300">→</span> ${res.checkOutDate}
+        </td>
+        <td class="py-3 font-mono text-right text-slate-700">
+          <span class="block">${store.formatMoney(res.totalAmount)}</span>
+          <span class="text-[9px] ${balance === 0 ? 'text-green-600' : 'text-orange-500'} font-semibold">
+            ${balance === 0 ? 'Fully Paid' : `Pending: ${store.formatMoney(balance)}`}
+          </span>
+        </td>
+        <td class="py-3 text-center">
+          <span class="px-2 py-0.5 rounded text-[10px] font-bold ${
+            res.status === 'Confirmed' ? 'bg-blue-50 text-blue-700 border border-blue-100' :
+            res.status === 'Checked In' ? 'bg-green-50 text-green-700 border border-green-100' :
+            res.status === 'Checked Out' ? 'bg-gray-100 text-gray-600 border border-gray-150' :
+            'bg-red-50 text-red-600 border border-red-100'
+          }">
+            ${res.status}
+          </span>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  return `
+    <div class="space-y-8 text-slate-800">
+      <!-- HEADER -->
+      <div class="flex justify-between items-center border-b border-gray-150 pb-6">
+        <div>
+          <span class="text-3xl">🛎️</span>
+          <h1 class="text-xl font-black uppercase text-slate-900 tracking-wider mt-2">${profile.name}</h1>
+          <p class="text-xs text-slate-400">Front Desk Guest Bookings & Stay Ledger Statement</p>
+        </div>
+        <div class="text-right">
+          <div class="bg-indigo-600 text-white px-4 py-1.5 rounded-lg text-xs font-black inline-block tracking-wider uppercase mb-2">FRONT DESK STATEMENT</div>
+          <p class="text-xs text-slate-400">Generated: <strong class="text-slate-700">${new Date().toLocaleString()}</strong></p>
+          <p class="text-xs text-slate-400">User: <strong class="text-slate-700">${store.getActiveUser()?.name || 'Authorized Operator'}</strong></p>
+        </div>
+      </div>
+
+      <!-- KEY METRICS CARD -->
+      <div class="grid grid-cols-3 gap-4 text-xs">
+        <div class="p-4 bg-slate-50 border border-slate-150 rounded-xl">
+          <span class="text-slate-400 font-bold block uppercase text-[9px] tracking-wider">Bookings Selected</span>
+          <strong class="text-base font-black text-slate-800 font-mono">${totalBookings} Entries</strong>
+        </div>
+        <div class="p-4 bg-slate-50 border border-slate-150 rounded-xl">
+          <span class="text-slate-400 font-bold block uppercase text-[9px] tracking-wider">Total Booking Value</span>
+          <strong class="text-base font-black text-indigo-700 font-mono">${store.formatMoney(totalAmount)}</strong>
+        </div>
+        <div class="p-4 bg-emerald-50/50 border border-emerald-100 rounded-xl">
+          <span class="text-emerald-400 font-bold block uppercase text-[9px] tracking-wider">Pending Accounts Receivable</span>
+          <strong class="text-base font-black text-emerald-700 font-mono">${store.formatMoney(totalPending)}</strong>
+        </div>
+      </div>
+
+      <!-- DATA TABLE -->
+      <div class="space-y-2">
+        <h3 class="text-xs font-black text-slate-900 uppercase tracking-wider">Guest Stay Log & Financial Register</h3>
+        <table class="w-full text-left">
+          <thead>
+            <tr class="border-b border-gray-200 text-[10px] font-black uppercase text-slate-400 tracking-wider">
+              <th class="pb-2 w-10">No.</th>
+              <th class="pb-2">Guest / Email</th>
+              <th class="pb-2">Room / Type</th>
+              <th class="pb-2">Stay Interval</th>
+              <th class="pb-2 text-right">Ledger Balance</th>
+              <th class="pb-2 text-center w-28">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${itemRows}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="text-center text-[10px] text-gray-400 italic pt-6 border-t border-gray-150">
+        Confidential Front Desk Ledger Document. System integrity preserved automatically.
+      </div>
+    </div>
+  `;
+}
+

@@ -13,7 +13,7 @@ interface SetupWizardProps {
 }
 
 export default function SetupWizard({ onSetupComplete }: SetupWizardProps) {
-  const [step, setStep] = useState<number>(1);
+  const [step, setStep] = useState<number>(0);
   const [seedLoading, setSeedLoading] = useState<boolean>(false);
 
   // Profile State
@@ -107,6 +107,145 @@ export default function SetupWizard({ onSetupComplete }: SetupWizardProps) {
     store.initializeSystem(settings, adminUser);
     onSetupComplete();
   };
+
+  if (step === 0) {
+    return (
+      <div className="min-h-screen bg-[#F4F6F9] dark:bg-gray-950 flex flex-col items-center justify-center p-4 transition-colors duration-150">
+        <div className="w-full max-w-5xl bg-white dark:bg-gray-900 rounded-2xl shadow-2xl border border-gray-150 dark:border-gray-800 overflow-hidden flex flex-col lg:flex-row">
+          
+          {/* Brand/Hero Panel */}
+          <div className="lg:w-5/12 bg-[#1B4F72] text-white p-8 lg:p-12 flex flex-col justify-between relative overflow-hidden">
+            <div className="absolute top-0 right-0 -mt-12 -mr-12 w-64 h-64 rounded-full bg-white/5 blur-3xl pointer-events-none"></div>
+            <div className="absolute bottom-0 left-0 -mb-16 -ml-16 w-80 h-80 rounded-full bg-orange-500/10 blur-3xl pointer-events-none"></div>
+            
+            <div className="relative z-10">
+              <div className="inline-flex items-center justify-center p-4 bg-white/10 rounded-2xl mb-8 border border-white/10">
+                <Building className="h-10 w-10 text-[#E67E22]" />
+              </div>
+              <h1 className="text-4xl font-extrabold tracking-tight leading-none">Hotel OS</h1>
+              <p className="text-[#E67E22] text-xs font-bold tracking-widest uppercase mt-3">
+                Property Operations Management Engine
+              </p>
+              <div className="h-1 w-12 bg-orange-500 mt-6 rounded-full"></div>
+              
+              <p className="text-sm text-blue-100 mt-6 leading-relaxed font-medium">
+                A unified property orchestration system coordinating Reservations, Front Desk, Fine Dining POS, HR Payroll, Procurement, Housekeeping, and Shift Audits.
+              </p>
+            </div>
+
+            <div className="mt-12 lg:mt-0 pt-8 border-t border-white/10 text-xs text-blue-200/80 relative z-10 space-y-2">
+              <div className="flex items-center space-x-2">
+                <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-ping"></span>
+                <span className="font-semibold text-emerald-300">System Ready for Deployment</span>
+              </div>
+              <p>Certified Secure Environment • Version 4.0</p>
+            </div>
+          </div>
+
+          {/* Action Panels */}
+          <div className="lg:w-7/12 p-8 lg:p-12 flex flex-col justify-between bg-gray-50/50 dark:bg-gray-900/50">
+            <div>
+              <div className="mb-6">
+                <h2 className="text-2xl font-black text-gray-800 dark:text-white tracking-tight">
+                  Welcome to the Guest & Admin Gate
+                </h2>
+                <p className="text-xs text-gray-400 dark:text-gray-400 mt-1">
+                  Select how you would like to initialize your secure Property Console.
+                </p>
+              </div>
+
+              {/* Grid of Choices */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+                
+                {/* Seed Sandbox Card */}
+                <div className="bg-white dark:bg-gray-800 p-5 rounded-2xl border border-orange-200 dark:border-orange-900/30 shadow-xs hover:shadow-md transition duration-200 flex flex-col justify-between space-y-4">
+                  <div>
+                    <div className="inline-flex items-center justify-center p-2.5 bg-orange-50 dark:bg-orange-950/20 rounded-xl mb-3">
+                      <Sparkles className="h-5 w-5 text-[#E67E22]" />
+                    </div>
+                    <h3 className="text-sm font-bold text-gray-800 dark:text-white">Seeded Sandbox Demo</h3>
+                    <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed mt-1.5">
+                      Explore a fully-connected luxury resort (The Grand Horizon Resort) populated with bookings, POS orders, room states, stock inventory, and full financial history.
+                    </p>
+                  </div>
+                  
+                  <button
+                    onClick={handleSeedSandbox}
+                    disabled={seedLoading}
+                    className="w-full mt-2 py-2 px-3 bg-[#E67E22] hover:bg-[#D35400] text-white text-xs font-bold rounded-xl transition cursor-pointer flex items-center justify-center space-x-1.5 shadow-sm hover:scale-[1.02] border-none"
+                  >
+                    <Sparkles className="h-3.5 w-3.5 animate-pulse text-white" />
+                    <span>{seedLoading ? 'Initializing Demo...' : 'Instant 1-Click Demo'}</span>
+                  </button>
+                </div>
+
+                {/* Fresh Custom Registration Card */}
+                <div className="bg-white dark:bg-gray-800 p-5 rounded-2xl border border-gray-150 dark:border-gray-700/60 shadow-xs hover:shadow-md transition duration-200 flex flex-col justify-between space-y-4">
+                  <div>
+                    <div className="inline-flex items-center justify-center p-2.5 bg-blue-50 dark:bg-blue-950/20 rounded-xl mb-3">
+                      <Building className="h-5 w-5 text-[#1B4F72]" />
+                    </div>
+                    <h3 className="text-sm font-bold text-gray-800 dark:text-white">Custom Property Setup</h3>
+                    <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed mt-1.5">
+                      Register a brand-new custom hotel profile from scratch. Configure buildings, floors, rooms, tax rates, and create your custom Super Admin credentials.
+                    </p>
+                  </div>
+                  
+                  <button
+                    onClick={() => setStep(1)}
+                    className="w-full mt-2 py-2 px-3 bg-[#1B4F72] hover:bg-[#153E5B] text-white text-xs font-bold rounded-xl transition cursor-pointer flex items-center justify-center space-x-1.5 shadow-sm hover:scale-[1.02] border-none"
+                  >
+                    <span>Register New Hotel</span>
+                    <ArrowRight className="h-3.5 w-3.5 text-white" />
+                  </button>
+                </div>
+
+              </div>
+
+              {/* Login block as option */}
+              <div className="mt-6 pt-5 border-t border-gray-200/80 dark:border-gray-700">
+                <span className="block text-[10px] text-gray-400 dark:text-gray-400 uppercase font-bold tracking-widest mb-3 flex items-center">
+                  <Key className="h-3.5 w-3.5 mr-1 text-[#1B4F72]" />
+                  <span>Demo Access Accounts Cheat-Sheet</span>
+                </span>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[10px] text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-950 p-3 rounded-xl border border-gray-200/50 dark:border-gray-800/80">
+                  <div>
+                    <span className="block font-bold text-gray-700 dark:text-gray-300">Super Admin:</span>
+                    <span className="font-mono">admin / admin123</span>
+                  </div>
+                  <div>
+                    <span className="block font-bold text-gray-700 dark:text-gray-300">Receptionist:</span>
+                    <span className="font-mono">recep / recep123</span>
+                  </div>
+                  <div>
+                    <span className="block font-bold text-gray-700 dark:text-gray-300">Manager:</span>
+                    <span className="font-mono">manager / manager123</span>
+                  </div>
+                  <div>
+                    <span className="block font-bold text-gray-700 dark:text-gray-300">POS Cashier:</span>
+                    <span className="font-mono">cashier / cash123</span>
+                  </div>
+                  <div>
+                    <span className="block font-bold text-gray-700 dark:text-gray-300">Waiter:</span>
+                    <span className="font-mono">waiter / wait123</span>
+                  </div>
+                  <div>
+                    <span className="block font-bold text-gray-700 dark:text-gray-300">Housekeeping:</span>
+                    <span className="font-mono">hk / hk123</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-8 text-center text-[10px] text-gray-400 dark:text-gray-500">
+              Note: Hotel OS persists all configurations locally. To clear or switch, use Settings inside.
+            </div>
+
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#F4F6F9] flex flex-col items-center justify-center p-4">
