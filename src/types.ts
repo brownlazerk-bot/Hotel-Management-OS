@@ -106,16 +106,38 @@ export interface Role {
   permissions: Permission[];
 }
 
+export interface Tenant {
+  id: string; // Tenant ID
+  hotelCode: string; // Unique domain or hotel code used for login
+  name: string; // Hotel Name
+  ownerName?: string;
+  country?: string;
+  businessRegistrationNumber: string;
+  taxNumber?: string;
+  logo: string;
+  address: string;
+  phone: string;
+  email: string;
+  currency: string;
+  timeZone: string;
+  subscriptionPlan: string;
+  status: 'Active' | 'Suspended' | 'Pending';
+  createdAt: string;
+}
+
 export interface User {
   id: string;
+  tenant_id: string; // Tenant ID link
+  employeeId?: string; // Optional link to employee profile in HR directory
   username: string;
   passwordHash: string; // Stored plaintext for local mock sandbox auth
   role: RoleName;
   name: string;
   email: string;
+  phoneNumber?: string;
+  country?: string;
   isActive: boolean;
   createdAt: string;
-  employeeId?: string; // Optional link to employee profile in HR directory
 }
 
 export interface Department {
@@ -196,6 +218,15 @@ export interface Room {
   currentReservationId?: string;
 }
 
+export interface ReservationCharge {
+  id: string;
+  description: string;
+  amount: number;
+  quantity: number;
+  date: string;
+  category: 'Room' | 'Minibar' | 'Laundry' | 'Dining' | 'Spa' | 'Other';
+}
+
 export interface Reservation {
   id: string;
   guestId: string;
@@ -208,6 +239,10 @@ export interface Reservation {
   status: ReservationStatus;
   notes?: string;
   createdAt: string;
+  charges?: ReservationCharge[];
+  paymentMethod?: string;
+  paymentReference?: string;
+  paymentStatus?: 'Unpaid' | 'Partially Paid' | 'Fully Paid';
 }
 
 export interface RestaurantTable {
@@ -215,6 +250,42 @@ export interface RestaurantTable {
   tableNumber: string;
   capacity: number;
   status: 'Available' | 'Occupied' | 'Reserved';
+}
+
+export interface MenuItemIngredient {
+  productId: string;
+  productName: string;
+  quantity: number;
+  unit: string;
+}
+
+export interface RecipeVersion {
+  id: string;
+  menuItemId: string;
+  menuItemName: string;
+  versionDate: string;
+  changedBy: string;
+  reason: string;
+  ingredients: MenuItemIngredient[];
+  changeDetails: string;
+}
+
+export interface RecipeConsumptionLog {
+  id: string;
+  date: string;
+  time: string;
+  menuItemId: string;
+  menuItemName: string;
+  orderNumber: string;
+  productId: string;
+  productName: string;
+  quantityUsed: number;
+  unit: string;
+  warehouse: string;
+  remainingQuantity: number;
+  cashier: string;
+  kitchenUser: string;
+  reference: string;
 }
 
 export interface MenuItem {
@@ -225,6 +296,7 @@ export interface MenuItem {
   isAvailable: boolean;
   description?: string;
   productId?: string; // Links menu item to an inventory product
+  ingredients?: MenuItemIngredient[];
 }
 
 export interface OrderItem {
@@ -337,6 +409,7 @@ export interface POSSale {
 
 export interface Account {
   id: string;
+  tenant_id?: string; // Optional Tenant link for isolation
   name: string; // Operating Cash, Main Bank, Card Receivables, Petty Cash
   type: 'Asset' | 'Liability' | 'Equity';
   balance: number;
@@ -347,11 +420,46 @@ export interface Transaction {
   accountId: string;
   type: 'Income' | 'Expense' | 'Transfer';
   amount: number;
-  category: string; // Room Revenue, Restaurant Revenue, Payroll, Laundry Supplies, Food Inventory, Utilities, Repairs
+  category: string; // Room Revenue, Restaurant Revenue, Payroll, Laundry Supplies, Food Inventory, Utilities, Repairs, Owner Investment, Owner Withdrawal, CEO Personal Expense, etc.
   description: string;
   referenceId?: string; // BookingId, OrderId, POId, PayrollId
   date: string;
   createdAt: string;
+  paymentMethod?: string; // Cash, Bank, Mobile Money, Card, etc.
+  department?: string; // Rooms, F&B, Operations, CEO, Admin, etc.
+  createdBy?: string; // Username of employee who created it
+  isUnnecessary?: boolean; // Highlight as unnecessary or high growth expense for analytics
+}
+
+export interface OwnerInvestment {
+  id: string; // Investment ID
+  date: string;
+  amount: number;
+  currency: string;
+  paymentMethod: string;
+  reason: string;
+  description: string;
+  attachment?: string;
+  addedBy: string;
+}
+
+export interface OwnerWithdrawal {
+  id: string; // Withdrawal ID
+  date: string;
+  amount: number;
+  reason: string;
+  paymentMethod: string;
+  approvedBy: string;
+  notes: string;
+}
+
+export interface OwnerPersonalExpense {
+  id: string; // Expense ID
+  date: string;
+  amount: number;
+  description: string;
+  category: string; // Personal purchases, transport, bills, etc.
+  paymentMethod: string;
 }
 
 export interface CleaningTask {
@@ -486,6 +594,20 @@ export interface DailyShiftReport {
   notes_ceo?: string;
 }
 
+export interface RoomInventoryItem {
+  id: string;
+  roomId: string;
+  productId?: string;
+  name: string;
+  category: 'Minibar' | 'Linen' | 'Toiletries' | 'Amenities' | 'Electronics' | 'Furniture' | 'Other';
+  quantity: number;
+  expectedQuantity: number;
+  status: 'In Stock' | 'Needs Replenishment' | 'Missing';
+  lastCheckedAt?: string;
+  lastCheckedBy?: string;
+  notes?: string;
+}
+
 export interface HotelOSDatabase {
   settings: HotelOSSettings;
   users: User[];
@@ -509,6 +631,9 @@ export interface HotelOSDatabase {
   sales: POSSale[];
   accounts: Account[];
   transactions: Transaction[];
+  ownerInvestments?: OwnerInvestment[];
+  ownerWithdrawals?: OwnerWithdrawal[];
+  ownerExpenses?: OwnerPersonalExpense[];
   cleaningTasks: CleaningTask[];
   laundryItems: LaundryItem[];
   lostAndFound: LostAndFound[];
@@ -520,8 +645,12 @@ export interface HotelOSDatabase {
   usbPrinters?: USBPrinterConfig[];
   printJobs?: PrintJob[];
   reprints?: ReprintRecord[];
+  recipeVersions?: RecipeVersion[];
+  recipeConsumptionLogs?: RecipeConsumptionLog[];
+  roomInventoryItems?: RoomInventoryItem[];
+  tenants?: Tenant[];
+  activeTenantId?: string;
   isInitialized: boolean;
-  isIsolatedClient?: boolean;
 }
 
 export interface USBPrinterConfig {

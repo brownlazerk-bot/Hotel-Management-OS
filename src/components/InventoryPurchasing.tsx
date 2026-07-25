@@ -5,6 +5,7 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { store } from '../db/store';
+import MenuIngredientManagement from './MenuIngredientManagement';
 import { InventoryProduct, Supplier, PurchaseRequest, PurchaseOrder, StockMovementType, MenuItem } from '../types';
 import { launchPrintPreview, getPurchaseOrderHTML, getGoodsReceivedNoteHTML, getInventorySelectedReportHTML, getProcurementSelectedReportHTML } from '../utils/printService';
 import { navigate } from '../utils/router';
@@ -25,8 +26,8 @@ import {
   Printer
 } from 'lucide-react';
 
-export default function InventoryPurchasing({ initialTab }: { initialTab?: 'registry' | 'purchases' | 'suppliers' | 'menu_availability' } = {}) {
-  const [activeTab, setActiveTab] = useState<'registry' | 'purchases' | 'suppliers' | 'menu_availability'>(initialTab || 'registry');
+export default function InventoryPurchasing({ initialTab }: { initialTab?: 'registry' | 'purchases' | 'suppliers' | 'menu_availability' | 'menu_ingredients' } = {}) {
+  const [activeTab, setActiveTab] = useState<'registry' | 'purchases' | 'suppliers' | 'menu_availability' | 'menu_ingredients'>(initialTab || 'registry');
 
   useEffect(() => {
     if (initialTab) {
@@ -354,6 +355,16 @@ export default function InventoryPurchasing({ initialTab }: { initialTab?: 'regi
             }`}
           >
             Restaurant Menu Stock & Availability
+          </button>
+          <button
+            onClick={() => setActiveTab('menu_ingredients')}
+            className={`px-4 py-2 text-xs font-semibold rounded-xl transition duration-150 border cursor-pointer ${
+              activeTab === 'menu_ingredients'
+                ? 'bg-[#1B4F72] text-white border-[#1B4F72] shadow-sm'
+                : 'bg-white text-gray-600 border-gray-150 hover:bg-gray-50'
+            }`}
+          >
+            Menu Ingredient Management
           </button>
         </div>
       </div>
@@ -1064,6 +1075,11 @@ export default function InventoryPurchasing({ initialTab }: { initialTab?: 'regi
             )}
           </div>
         </div>
+      )}
+
+      {/* TAB 5: MENU INGREDIENT MANAGEMENT */}
+      {activeTab === 'menu_ingredients' && (
+        <MenuIngredientManagement />
       )}
 
       {/* MODAL: REGISTER/EDIT PRODUCT CARD */}

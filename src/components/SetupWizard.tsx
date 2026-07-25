@@ -19,6 +19,7 @@ export default function SetupWizard({ onSetupComplete }: SetupWizardProps) {
 
   // Profile State
   const [profileName, setProfileName] = useState('The Grand Hotel');
+  const [hotelCode, setHotelCode] = useState('grandhotel');
   const [slogan, setSlogan] = useState('Elevated Hospitality');
   const [phone, setPhone] = useState('+1 (555) 123-4567');
   const [email, setEmail] = useState('info@thegrandhotel.com');
@@ -91,47 +92,34 @@ export default function SetupWizard({ onSetupComplete }: SetupWizardProps) {
     const buildings = buildingsInput.split(',').map(b => b.trim()).filter(b => b.length > 0);
     const floors = floorsInput.split(',').map(f => f.trim()).filter(f => f.length > 0);
 
-    const settings: HotelOSSettings = {
-      profile: {
-        name: profileName,
-        logo: '🏨',
-        coverImage: 'https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=1600&q=80',
-        slogan,
-        phone,
-        email,
-        website,
-        address,
-        country,
-        currency,
-        timeZone: 'UTC',
-        taxNumber,
-        taxRate
-      },
-      structure: {
-        buildings,
-        floors,
-        amenities: ['Wi-Fi', 'Swimming Pool', 'Spa', 'Gym', 'Mini Bar', 'Air Conditioning', 'Room Service']
-      },
-      theme: 'light',
-      language: 'en',
-      paymentMethods: ['Cash', 'Card', 'Mobile Money'],
-      printerName: 'Default Printer',
-      autoBackup: true
+    const tenantData = {
+      name: profileName,
+      hotelCode: hotelCode.toLowerCase().trim(),
+      businessRegistrationNumber: taxNumber || 'BR-' + Date.now(),
+      taxNumber: taxNumber,
+      logo: '🏨',
+      address,
+      phone,
+      email,
+      currency,
+      timeZone: 'UTC',
+      subscriptionPlan: 'Professional' as const,
+      status: 'Active' as const
     };
 
-    const adminUser: User = {
-      id: 'usr_admin',
-      username: adminUsername,
-      passwordHash: adminPassword,
-      role: 'Super Admin',
-      name: adminName,
+    const ceoData = {
+      username: adminUsername.toLowerCase().trim(),
       email: adminEmail,
-      isActive: true,
-      createdAt: new Date().toISOString()
+      passwordHash: adminPassword,
+      name: adminName
     };
 
-    store.initializeSystem(settings, adminUser);
-    onSetupComplete();
+    const result = store.registerHotel(tenantData, ceoData);
+    if (result.success) {
+      onSetupComplete();
+    } else {
+      alert(result.error || 'Failed to register hotel');
+    }
   };
 
   if (step === 0) {
@@ -322,22 +310,20 @@ export default function SetupWizard({ onSetupComplete }: SetupWizardProps) {
             </p>
           </div>
 
-          {!store.getDb().isIsolatedClient && (
-            <div className="mt-8 pt-6 border-t border-white/10 space-y-3">
-              <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-300">Fast Sandbox Evaluation</h2>
-              <p className="text-xs text-gray-300 leading-relaxed">
-                Want to review the fully completed, connected platform with pre-loaded luxury resort simulator data instantly?
-              </p>
-              <button
-                onClick={handleSeedSandbox}
-                disabled={seedLoading}
-                className="w-full mt-2 inline-flex items-center justify-center px-4 py-2.5 bg-[#E67E22] hover:bg-[#D35400] text-white font-medium rounded-lg text-xs transition duration-200 shadow-md shadow-[#E67E22]/10 active:scale-[0.98] cursor-pointer"
-              >
-                <Sparkles className="h-3.5 w-3.5 mr-1.5" />
-                {seedLoading ? 'Generating Sandbox...' : 'Seed Sandbox Simulator'}
-              </button>
-            </div>
-          )}
+          <div className="mt-8 pt-6 border-t border-white/10 space-y-3">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-300">Fast Sandbox Evaluation</h2>
+            <p className="text-xs text-gray-300 leading-relaxed">
+              Want to review the fully completed, connected platform with pre-loaded luxury resort simulator data instantly?
+            </p>
+            <button
+              onClick={handleSeedSandbox}
+              disabled={seedLoading}
+              className="w-full mt-2 inline-flex items-center justify-center px-4 py-2.5 bg-[#E67E22] hover:bg-[#D35400] text-white font-medium rounded-lg text-xs transition duration-200 shadow-md shadow-[#E67E22]/10 active:scale-[0.98] cursor-pointer"
+            >
+              <Sparkles className="h-3.5 w-3.5 mr-1.5" />
+              {seedLoading ? 'Generating Sandbox...' : 'Seed Sandbox Simulator'}
+            </button>
+          </div>
         </div>
 
         {/* Right Form Wizard Panel */}
@@ -380,6 +366,19 @@ export default function SetupWizard({ onSetupComplete }: SetupWizardProps) {
                       onChange={(e) => setProfileName(e.target.value)}
                     />
                   </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Hotel Code (For Multi-Tenant Login)</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. grandhotel"
+                      className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#1B4F72] text-gray-800 font-mono"
+                      value={hotelCode}
+                      onChange={(e) => setHotelCode(e.target.value.toLowerCase().replace(/[^a-z0-9]/g, ''))}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1">
                   <div>
                     <label className="block text-xs font-medium text-gray-500 mb-1">Slogan</label>
                     <input

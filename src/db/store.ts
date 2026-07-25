@@ -7,6 +7,7 @@ import {
   HotelOSDatabase,
   HotelOSSettings,
   User,
+  Tenant,
   Role,
   Department,
   Employee,
@@ -42,8 +43,15 @@ import {
   ConsoleMapping,
   USBPrinterConfig,
   PrintJob,
-  ReprintRecord
+  ReprintRecord,
+  MenuItemIngredient,
+  RecipeVersion,
+  RecipeConsumptionLog,
+  RoomInventoryItem,
+  ReservationCharge
 } from '../types';
+
+export type { User, Tenant, HotelOSSettings, HotelOSDatabase };
 
 // ============================================================================
 // INITIAL EMPTY STATE
@@ -122,6 +130,9 @@ const INITIAL_STATE: HotelOSDatabase = {
   sales: [],
   accounts: DEFAULT_ACCOUNTS,
   transactions: [],
+  ownerInvestments: [],
+  ownerWithdrawals: [],
+  ownerExpenses: [],
   cleaningTasks: [],
   laundryItems: [],
   lostAndFound: [],
@@ -132,6 +143,9 @@ const INITIAL_STATE: HotelOSDatabase = {
   usbPrinters: [],
   printJobs: [],
   reprints: [],
+  recipeVersions: [],
+  recipeConsumptionLogs: [],
+  roomInventoryItems: [],
   isInitialized: false
 };
 
@@ -158,6 +172,31 @@ class HotelStore {
     }
 
     this.startPrinterSimulation();
+
+    // Multi-tenant real-time sync across windows/tabs
+    if (typeof window !== 'undefined') {
+      window.addEventListener('storage', (e) => {
+        if (e.key === 'hotel_os_database') {
+          this.db = this.loadFromStorage();
+          this.notify();
+        }
+      });
+
+      if ('BroadcastChannel' in window) {
+        try {
+          const channel = new BroadcastChannel('hotel_os_realtime_sync');
+          channel.onmessage = (event) => {
+            const currentTenantId = this.getActiveTenantId();
+            if (event.data?.type === 'db_update' && event.data?.tenantId === currentTenantId) {
+              this.db = this.loadFromStorage();
+              this.notify();
+            }
+          };
+        } catch (err) {
+          console.error('BroadcastChannel error', err);
+        }
+      }
+    }
   }
 
   public getDefaultConsoleMappings(): ConsoleMapping[] {
@@ -533,8 +572,7 @@ class HotelStore {
       const cleanDb: HotelOSDatabase = {
         ...INITIAL_STATE,
         consoleMappings: this.getDefaultConsoleMappings(),
-        isInitialized: false,
-        isIsolatedClient: true
+        isInitialized: false
       };
       this.db = cleanDb;
       localStorage.setItem('hotel_os_database', JSON.stringify(cleanDb));
@@ -583,11 +621,19 @@ class HotelStore {
         return {
           ...INITIAL_STATE,
           ...parsed,
+          ownerInvestments: parsed.ownerInvestments || [],
+          ownerWithdrawals: parsed.ownerWithdrawals || [],
+          ownerExpenses: parsed.ownerExpenses || [],
           shiftReports: parsed.shiftReports || [],
           consoleMappings: parsed.consoleMappings || this.getDefaultConsoleMappings(),
           usbPrinters: parsed.usbPrinters && parsed.usbPrinters.length > 0 ? parsed.usbPrinters : this.getDefaultPrinters(),
           printJobs: parsed.printJobs || [],
-          reprints: parsed.reprints || []
+          reprints: parsed.reprints || [],
+          recipeVersions: parsed.recipeVersions || [],
+          recipeConsumptionLogs: parsed.recipeConsumptionLogs || [],
+          roomInventoryItems: parsed.roomInventoryItems || [],
+          tenants: parsed.tenants || [],
+          activeTenantId: parsed.activeTenantId || undefined
         };
       }
     } catch (e) {
@@ -611,6 +657,42 @@ class HotelStore {
 
   public saveToStorage(): void {
     try {
+      const activeTenantId = this.getActiveTenantId();
+      if (activeTenantId) {
+        // Enforce tenant_id on all arrays for the currently loaded tenant's new/updated items
+        const skipTables = ['tenants', 'activeTenantId', 'isInitialized'];
+        for (const key of Object.keys(this.db)) {
+          if (skipTables.includes(key)) continue;
+          const val = (this.db as any)[key];
+          if (Array.isArray(val)) {
+            val.forEach((item: any) => {
+              if (item && typeof item === 'object') {
+                if (!item.tenant_id) {
+                  item.tenant_id = activeTenantId;
+                }
+              }
+            });
+          }
+        }
+        
+        // Save tenant-specific settings to our master settings array
+        if (!(this.db.settings as any).tenant_id) {
+          (this.db.settings as any).tenant_id = activeTenantId;
+        }
+        
+        // Ensure settings are synced in an isolated array inside db
+        if (!(this.db as any).tenantSettings) {
+          (this.db as any).tenantSettings = [];
+        }
+        const existingSettingsIndex = (this.db as any).tenantSettings.findIndex((s: any) => s.tenant_id === activeTenantId);
+        const currentSettings = { ...this.db.settings, tenant_id: activeTenantId };
+        if (existingSettingsIndex !== -1) {
+          (this.db as any).tenantSettings[existingSettingsIndex] = currentSettings;
+        } else {
+          (this.db as any).tenantSettings.push(currentSettings);
+        }
+      }
+
       localStorage.setItem('hotel_os_database', JSON.stringify(this.db));
       
       // If initialized, keep its profile backup up to date as well!
@@ -653,20 +735,6 @@ class HotelStore {
   // Get all saved business/hotel profiles
   public getSavedProfiles(): { id: string; name: string; slogan: string; active: boolean }[] {
     try {
-      // If we are in isolated mode, never show other profiles
-      if (this.db && this.db.isIsolatedClient) {
-        if (this.db.isInitialized && this.db.settings?.profile?.name) {
-          const currentId = 'prof_' + this.db.settings.profile.name.replace(/\s+/g, '_').toLowerCase();
-          return [{
-            id: currentId,
-            name: this.db.settings.profile.name,
-            slogan: this.db.settings.profile.slogan || '',
-            active: true
-          }];
-        }
-        return [];
-      }
-
       const indexStr = localStorage.getItem('hotel_os_profiles_index');
       let index: { id: string; name: string; slogan: string }[] = [];
       if (indexStr) {
@@ -744,10 +812,6 @@ class HotelStore {
   // Switch to a different saved business/hotel profile
   public switchBusiness(profileId: string): { success: boolean; error?: string } {
     try {
-      if (this.db && this.db.isIsolatedClient) {
-        return { success: false, error: 'Operation not permitted in secure isolated client mode' };
-      }
-
       // 1. Save current active db to its profile key (if initialized)
       if (this.db && this.db.isInitialized && this.db.settings?.profile?.name) {
         const currentId = 'prof_' + this.db.settings.profile.name.replace(/\s+/g, '_').toLowerCase();
@@ -788,9 +852,6 @@ class HotelStore {
   // Delete a business profile
   public deleteBusiness(profileId: string): void {
     try {
-      if (this.db && this.db.isIsolatedClient) {
-        return;
-      }
       // Remove database storage
       localStorage.removeItem('hotel_os_db_' + profileId);
       
@@ -824,12 +885,24 @@ class HotelStore {
   // AUTHENTICATION & SESSIONS
   // ============================================================================
 
-  public login(username: string, passwordPlain: string): { success: boolean; error?: string } {
+  public login(username: string, passwordPlain: string, hotelCode?: string): { success: boolean; error?: string } {
+    if (hotelCode) {
+      const res = this.setTenantByCode(hotelCode);
+      if (!res.success) {
+        return { success: false, error: res.error };
+      }
+    }
+
+    const tenantId = this.getActiveTenantId();
+    if (!tenantId) {
+      return { success: false, error: 'Please identify your Hotel Code first.' };
+    }
+
     const user = this.db.users.find(
-      u => u.username.toLowerCase() === username.toLowerCase() && u.isActive
+      u => u.username.toLowerCase() === username.toLowerCase() && u.tenant_id === tenantId && u.isActive
     );
     if (!user) {
-      return { success: false, error: 'User not found or is inactive' };
+      return { success: false, error: 'User not found in this hotel workspace, or account is inactive.' };
     }
     if (user.passwordHash !== passwordPlain) {
       return { success: false, error: 'Invalid password' };
@@ -840,6 +913,60 @@ class HotelStore {
     this.addAuditLog('User Login', 'Authentication', `User ${user.username} logged in successfully`);
     this.notify();
     return { success: true };
+  }
+
+  public setActiveUserAndTenant(user: User, tenant: Tenant): void {
+    if (!this.db.tenants) this.db.tenants = [];
+    if (!this.db.users) this.db.users = [];
+
+    const tenantExists = this.db.tenants.some(t => t.id === tenant.id);
+    if (!tenantExists) {
+      this.db.tenants.push(tenant);
+    }
+
+    const userExists = this.db.users.some(u => u.id === user.id || u.email?.toLowerCase() === user.email?.toLowerCase());
+    if (!userExists) {
+      this.db.users.push(user);
+    } else {
+      this.db.users = this.db.users.map(u => (u.id === user.id || u.email?.toLowerCase() === user.email?.toLowerCase()) ? user : u);
+    }
+
+    this.activeUser = user;
+    this.db.activeTenantId = tenant.id;
+    this.db.isInitialized = true;
+    sessionStorage.setItem('hotel_os_session', JSON.stringify(user));
+    this.saveToStorage();
+    this.notify();
+  }
+
+  public syncRemoteTenantAndUser(tenant: Tenant, user: User, settings?: HotelOSSettings): void {
+    if (!this.db.tenants) this.db.tenants = [];
+    if (!this.db.users) this.db.users = [];
+
+    const tIdx = this.db.tenants.findIndex(t => t.id === tenant.id);
+    if (tIdx >= 0) {
+      this.db.tenants[tIdx] = tenant;
+    } else {
+      this.db.tenants.push(tenant);
+    }
+
+    const uIdx = this.db.users.findIndex(u => u.id === user.id || u.email?.toLowerCase() === user.email?.toLowerCase());
+    if (uIdx >= 0) {
+      this.db.users[uIdx] = user;
+    } else {
+      this.db.users.push(user);
+    }
+
+    if (settings) {
+      this.db.settings = settings;
+    }
+
+    this.activeUser = user;
+    this.db.activeTenantId = tenant.id;
+    this.db.isInitialized = true;
+    sessionStorage.setItem('hotel_os_session', JSON.stringify(user));
+    this.saveToStorage();
+    this.notify();
   }
 
   public logout(): void {
@@ -869,8 +996,210 @@ class HotelStore {
   // DATABASE EXPORT, RESET, & SEED
   // ============================================================================
 
+  public getActiveTenantId(): string | null {
+    if (this.activeUser && this.activeUser.tenant_id) {
+      return this.activeUser.tenant_id;
+    }
+    return this.db.activeTenantId || null;
+  }
+
+  public setTenantByCode(hotelCode: string): { success: boolean; tenant?: Tenant; error?: string } {
+    if (!this.db.tenants) {
+      this.db.tenants = [];
+    }
+    const found = this.db.tenants.find(t => t.hotelCode.toLowerCase() === hotelCode.toLowerCase().trim());
+    if (found) {
+      if (found.status !== 'Active') {
+        return { success: false, error: `This hotel workspace is currently ${found.status.toLowerCase()}` };
+      }
+      this.db.activeTenantId = found.id;
+      
+      // Load settings for this tenant
+      const tenantSettings = (this.db as any).tenantSettings || [];
+      const settings = tenantSettings.find((s: any) => s.tenant_id === found.id);
+      if (settings) {
+        this.db.settings = settings;
+      }
+      
+      this.saveToStorage();
+      this.notify();
+      return { success: true, tenant: found };
+    }
+    return { success: false, error: 'Hotel code not found' };
+  }
+
+  public registerHotel(tenantData: Omit<Tenant, 'id' | 'createdAt'>, ceoData: { username: string; email: string; passwordHash: string; name: string }): { success: boolean; tenant?: Tenant; error?: string } {
+    if (!this.db.tenants) {
+      this.db.tenants = [];
+    }
+    const exists = this.db.tenants.some(t => t.hotelCode.toLowerCase() === tenantData.hotelCode.toLowerCase().trim());
+    if (exists) {
+      return { success: false, error: 'Hotel Code already registered' };
+    }
+
+    const tenantId = `tenant_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
+    const newTenant: Tenant = {
+      ...tenantData,
+      id: tenantId,
+      hotelCode: tenantData.hotelCode.toLowerCase().trim(),
+      createdAt: new Date().toISOString()
+    };
+
+    // 1. Save Tenant
+    this.db.tenants.push(newTenant);
+
+    // 2. Set active tenant
+    this.db.activeTenantId = tenantId;
+
+    // 3. Create CEO account
+    const ceoUser: User = {
+      id: `usr_ceo_${Date.now()}`,
+      tenant_id: tenantId,
+      username: ceoData.username.toLowerCase().trim(),
+      passwordHash: ceoData.passwordHash,
+      role: 'CEO',
+      name: ceoData.name,
+      email: ceoData.email,
+      isActive: true,
+      createdAt: new Date().toISOString()
+    };
+    this.db.users.push(ceoUser);
+
+    // 4. Create Default Departments with tenant_id
+    const depts = [
+      { id: `dept_rec_${tenantId}`, name: 'Front Desk & Reception', description: 'Guest services and registrations' },
+      { id: `dept_hk_${tenantId}`, name: 'Housekeeping', description: 'Room cleaning and sanitization' },
+      { id: `dept_fb_${tenantId}`, name: 'Food & Beverage', description: 'Restaurant, kitchen and bar operations' },
+      { id: `dept_fin_${tenantId}`, name: 'Accounting & Finance', description: 'Ledgers, transactions and reporting' },
+      { id: `dept_maint_${tenantId}`, name: 'Maintenance', description: 'Facilities and repair works' }
+    ];
+    depts.forEach(d => {
+      this.db.departments.push({ ...d, tenant_id: tenantId } as any);
+    });
+
+    // 5. Create Default Roles with tenant_id
+    DEFAULT_ROLES.forEach(r => {
+      this.db.roles.push({ ...r, id: `${r.id}_${tenantId}`, tenant_id: tenantId } as any);
+    });
+
+    // 6. Create Default Settings with tenant_id
+    const defaultSettings: HotelOSSettings = {
+      profile: {
+        name: newTenant.name,
+        logo: newTenant.logo || '🏨',
+        coverImage: 'https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=1600&q=80',
+        slogan: 'Elevated Multi-Tenant Hospitality',
+        phone: newTenant.phone,
+        email: newTenant.email,
+        website: '',
+        address: newTenant.address,
+        country: 'Global',
+        currency: newTenant.currency || 'USD',
+        timeZone: newTenant.timeZone || 'UTC',
+        taxNumber: newTenant.taxNumber || '',
+        taxRate: 15
+      },
+      structure: {
+        buildings: ['Main Wing'],
+        floors: ['Ground Floor', '1st Floor'],
+        amenities: ['Wi-Fi', 'Swimming Pool', 'Mini Bar', 'Air Conditioning', 'Room Service']
+      },
+      theme: 'light',
+      language: 'en',
+      paymentMethods: ['Cash', 'Card', 'Mobile Money'],
+      printerName: 'Default Printer',
+      autoBackup: true
+    };
+    this.db.settings = defaultSettings;
+
+    // 7. Create Console Mappings for the tenant
+    const defaultConsoleMappings = this.getDefaultConsoleMappings();
+    if (!this.db.consoleMappings) {
+      this.db.consoleMappings = [];
+    }
+    defaultConsoleMappings.forEach(cm => {
+      this.db.consoleMappings!.push({
+        ...cm,
+        tenant_id: tenantId
+      } as any);
+    });
+
+    // 8. Create Default Accounts for Accounting
+    DEFAULT_ACCOUNTS.forEach(acc => {
+      this.db.accounts.push({
+        ...acc,
+        id: `${acc.id}_${tenantId}`,
+        tenant_id: tenantId
+      });
+    });
+
+    this.db.isInitialized = true;
+    this.activeUser = ceoUser;
+    sessionStorage.setItem('hotel_os_session', JSON.stringify(ceoUser));
+    this.saveToStorage();
+    this.notify();
+
+    return { success: true, tenant: newTenant };
+  }
+
   public getDb(): HotelOSDatabase {
-    return this.db;
+    const tenantId = this.getActiveTenantId();
+    if (!tenantId) {
+      // If no tenant is selected, return a blank database with isInitialized = false but including basic metadata
+      return {
+        ...INITIAL_STATE,
+        isInitialized: false,
+        users: this.db.users, // So we can log in!
+        tenants: this.db.tenants || []
+      };
+    }
+
+    // Build and return a dynamically filtered view of the master database for absolute isolation
+    const filtered: HotelOSDatabase = {
+      isInitialized: true,
+      settings: this.db.settings,
+      users: (this.db.users || []).filter(u => u.tenant_id === tenantId),
+      roles: (this.db.roles || []).filter(r => (r as any).tenant_id === tenantId || !(r as any).tenant_id),
+      departments: (this.db.departments || []).filter(d => (d as any).tenant_id === tenantId),
+      employees: (this.db.employees || []).filter(e => (e as any).tenant_id === tenantId),
+      attendance: (this.db.attendance || []).filter(a => (a as any).tenant_id === tenantId),
+      payroll: (this.db.payroll || []).filter(p => (p as any).tenant_id === tenantId),
+      guests: (this.db.guests || []).filter(g => (g as any).tenant_id === tenantId),
+      roomTypes: (this.db.roomTypes || []).filter(rt => (rt as any).tenant_id === tenantId),
+      rooms: (this.db.rooms || []).filter(r => (r as any).tenant_id === tenantId),
+      reservations: (this.db.reservations || []).filter(r => (r as any).tenant_id === tenantId),
+      restaurantTables: (this.db.restaurantTables || []).filter(rt => (rt as any).tenant_id === tenantId),
+      menuItems: (this.db.menuItems || []).filter(mi => (mi as any).tenant_id === tenantId),
+      restaurantOrders: (this.db.restaurantOrders || []).filter(ro => (ro as any).tenant_id === tenantId),
+      products: (this.db.products || []).filter(p => (p as any).tenant_id === tenantId),
+      inventoryMovements: (this.db.inventoryMovements || []).filter(im => (im as any).tenant_id === tenantId),
+      suppliers: (this.db.suppliers || []).filter(s => (s as any).tenant_id === tenantId),
+      purchaseRequests: (this.db.purchaseRequests || []).filter(pr => (pr as any).tenant_id === tenantId),
+      purchaseOrders: (this.db.purchaseOrders || []).filter(po => (po as any).tenant_id === tenantId),
+      sales: (this.db.sales || []).filter(s => (s as any).tenant_id === tenantId),
+      accounts: (this.db.accounts || []).filter(a => (a as any).tenant_id === tenantId),
+      transactions: (this.db.transactions || []).filter(t => (t as any).tenant_id === tenantId),
+      ownerInvestments: (this.db.ownerInvestments || []).filter(oi => (oi as any).tenant_id === tenantId),
+      ownerWithdrawals: (this.db.ownerWithdrawals || []).filter(ow => (ow as any).tenant_id === tenantId),
+      ownerExpenses: (this.db.ownerExpenses || []).filter(oe => (oe as any).tenant_id === tenantId),
+      cleaningTasks: (this.db.cleaningTasks || []).filter(ct => (ct as any).tenant_id === tenantId),
+      laundryItems: (this.db.laundryItems || []).filter(li => (li as any).tenant_id === tenantId),
+      lostAndFound: (this.db.lostAndFound || []).filter(lf => (lf as any).tenant_id === tenantId),
+      maintenanceRequests: (this.db.maintenanceRequests || []).filter(mr => (mr as any).tenant_id === tenantId),
+      notifications: (this.db.notifications || []).filter(n => (n as any).tenant_id === tenantId),
+      auditLogs: (this.db.auditLogs || []).filter(al => (al as any).tenant_id === tenantId),
+      shiftReports: (this.db.shiftReports || []).filter(sr => (sr as any).tenant_id === tenantId),
+      consoleMappings: (this.db.consoleMappings || []).filter(cm => (cm as any).tenant_id === tenantId),
+      usbPrinters: (this.db.usbPrinters || []).filter(up => (up as any).tenant_id === tenantId),
+      printJobs: (this.db.printJobs || []).filter(pj => (pj as any).tenant_id === tenantId),
+      reprints: (this.db.reprints || []).filter(rp => (rp as any).tenant_id === tenantId),
+      recipeVersions: (this.db.recipeVersions || []).filter(rv => (rv as any).tenant_id === tenantId),
+      recipeConsumptionLogs: (this.db.recipeConsumptionLogs || []).filter(rcl => (rcl as any).tenant_id === tenantId),
+      roomInventoryItems: (this.db.roomInventoryItems || []).filter(rii => (rii as any).tenant_id === tenantId),
+      tenants: this.db.tenants || [],
+      activeTenantId: tenantId
+    };
+    return filtered;
   }
 
   public resetDatabase(): void {
@@ -1346,12 +1675,16 @@ class HotelStore {
         orderId
       );
 
-      // Relational: Deduct inventory stock if products are connected to menu items
+      // Relational: Deduct inventory stock of connected menu item ingredients
       order.items.forEach(it => {
-        const menuItem = this.db.menuItems.find(mi => mi.id === it.menuItemId);
-        if (menuItem?.productId) {
-          this.addInventoryMovement(menuItem.productId, it.quantity, 'Out', `POS Order Settle (Order ${orderId})`);
-        }
+        this.consumeMenuItemIngredients(
+          it.menuItemId,
+          it.quantity,
+          order.id,
+          order.orderNumber || order.id,
+          this.activeUser?.name || 'Cashier',
+          'Chef'
+        );
       });
 
       // Create POS Sale record
@@ -1392,9 +1725,18 @@ class HotelStore {
       sale.id
     );
 
-    // Relational: Deduct inventory stock if products are connected
+    // Relational: Deduct inventory stock of connected menu item ingredients
     sale.items.forEach(item => {
-      if (item.productId) {
+      if (item.menuItemId) {
+        this.consumeMenuItemIngredients(
+          item.menuItemId,
+          item.quantity,
+          sale.id,
+          sale.id,
+          this.activeUser?.name || 'Cashier',
+          'Chef'
+        );
+      } else if (item.productId) {
         this.addInventoryMovement(item.productId, item.quantity, 'Out', `POS Sale ${sale.id}`);
       }
     });
@@ -1404,8 +1746,275 @@ class HotelStore {
   }
 
   // ============================================================================
+  // ROOM INVENTORY MANAGEMENT
+  // ============================================================================
+  public getRoomInventoryItems(): RoomInventoryItem[] {
+    if (!this.db.roomInventoryItems) {
+      this.db.roomInventoryItems = [];
+    }
+    return this.db.roomInventoryItems;
+  }
+
+  public saveRoomInventoryItem(item: RoomInventoryItem): void {
+    if (!this.db.roomInventoryItems) {
+      this.db.roomInventoryItems = [];
+    }
+    const index = this.db.roomInventoryItems.findIndex(i => i.id === item.id);
+    if (index !== -1) {
+      this.db.roomInventoryItems[index] = item;
+    } else {
+      this.db.roomInventoryItems.push(item);
+    }
+    this.saveToStorage();
+  }
+
+  public deleteRoomInventoryItem(id: string): void {
+    if (!this.db.roomInventoryItems) return;
+    this.db.roomInventoryItems = this.db.roomInventoryItems.filter(i => i.id !== id);
+    this.saveToStorage();
+  }
+
+  public addReservationCharge(resId: string, charge: Omit<ReservationCharge, 'id' | 'date'>): void {
+    const res = this.db.reservations.find(r => r.id === resId);
+    if (!res) return;
+
+    if (!res.charges) {
+      res.charges = [];
+    }
+
+    const newCharge: ReservationCharge = {
+      ...charge,
+      id: `chg_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+      date: new Date().toISOString().split('T')[0]
+    };
+
+    res.charges.push(newCharge);
+
+    // Sum base price from nights stay + all other charges
+    const start = new Date(res.checkInDate);
+    const end = new Date(res.checkOutDate);
+    const diffTime = Math.abs(end.getTime() - start.getTime());
+    const nights = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) || 1;
+    const room = this.db.rooms.find(r => r.id === res.roomId);
+    const roomType = room ? this.db.roomTypes.find(t => t.id === room.roomTypeId) : null;
+    const baseRoomCharge = nights * (roomType?.basePrice || 0);
+
+    const totalCharges = res.charges.reduce((sum, c) => sum + (c.amount * c.quantity), 0);
+    res.totalAmount = baseRoomCharge + totalCharges;
+
+    this.addAuditLog('Add Room Charge', 'Front Office', `Added charge "${charge.description}" (${this.formatMoney(charge.amount * charge.quantity)}) to reservation ${resId}`);
+    this.saveToStorage();
+  }
+
+  public removeReservationCharge(resId: string, chargeId: string): void {
+    const res = this.db.reservations.find(r => r.id === resId);
+    if (!res) return;
+
+    if (!res.charges) return;
+    res.charges = res.charges.filter(c => c.id !== chargeId);
+
+    // Recompute total amount
+    const start = new Date(res.checkInDate);
+    const end = new Date(res.checkOutDate);
+    const diffTime = Math.abs(end.getTime() - start.getTime());
+    const nights = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) || 1;
+    const room = this.db.rooms.find(r => r.id === res.roomId);
+    const roomType = room ? this.db.roomTypes.find(t => t.id === room.roomTypeId) : null;
+    const baseRoomCharge = nights * (roomType?.basePrice || 0);
+
+    const totalCharges = res.charges.reduce((sum, c) => sum + (c.amount * c.quantity), 0);
+    res.totalAmount = baseRoomCharge + totalCharges;
+
+    this.addAuditLog('Remove Room Charge', 'Front Office', `Removed charge ID ${chargeId} from reservation ${resId}`);
+    this.saveToStorage();
+  }
+
+  public postReservationPayment(resId: string, amount: number, paymentMethod: string, reference: string): void {
+    const res = this.db.reservations.find(r => r.id === resId);
+    if (!res) return;
+
+    res.amountPaid += amount;
+    res.paymentMethod = paymentMethod;
+    res.paymentReference = reference;
+
+    const balance = res.totalAmount - res.amountPaid;
+    if (balance <= 0) {
+      res.paymentStatus = 'Fully Paid';
+    } else if (res.amountPaid > 0) {
+      res.paymentStatus = 'Partially Paid';
+    } else {
+      res.paymentStatus = 'Unpaid';
+    }
+
+    // Record cashflow transaction
+    this.addFinanceTransaction(
+      'acc_2', // Main bank account
+      'Income',
+      amount,
+      'Room Revenue',
+      `Payment posted via ${paymentMethod} (${reference || 'N/A'}) for reservation ${resId}`,
+      resId
+    );
+
+    this.addAuditLog('Post Payment', 'Front Office', `Recorded payment of ${this.formatMoney(amount)} via ${paymentMethod} for reservation ${resId}`);
+    this.saveToStorage();
+  }
+
+  // ============================================================================
   // INVENTORY & PURCHASING
   // ============================================================================
+
+  public consumeMenuItemIngredients(
+    menuItemId: string,
+    orderQuantity: number,
+    referenceId: string,
+    orderNumber: string,
+    cashierName?: string,
+    kitchenUserName?: string
+  ): void {
+    const menuItem = this.db.menuItems.find(mi => mi.id === menuItemId);
+    if (!menuItem) return;
+
+    const ingredients = menuItem.ingredients || [];
+    if (ingredients.length === 0) {
+      if (menuItem.productId) {
+        const prod = this.db.products.find(p => p.id === menuItem.productId);
+        if (prod) {
+          this.addInventoryMovement(menuItem.productId, orderQuantity, 'Out', `POS Order Settle (Order ${orderNumber || referenceId})`);
+        }
+      }
+      return;
+    }
+
+    const activeCashier = cashierName || this.activeUser?.name || 'Cashier';
+    const activeKitchenUser = kitchenUserName || 'Chef';
+
+    ingredients.forEach(ing => {
+      const prod = this.db.products.find(p => p.id === ing.productId);
+      if (!prod) return;
+
+      const totalQtyUsed = ing.quantity * orderQuantity;
+      
+      this.addInventoryMovement(
+        ing.productId,
+        totalQtyUsed,
+        'Out',
+        `Menu Consumption: ${menuItem.name} x${orderQuantity} (Ref: ${orderNumber || referenceId})`
+      );
+
+      const now = new Date();
+      const dateStr = now.toISOString().split('T')[0];
+      const timeStr = now.toTimeString().split(' ')[0];
+
+      const logEntry: RecipeConsumptionLog = {
+        id: `rc_log_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+        date: dateStr,
+        time: timeStr,
+        menuItemId: menuItem.id,
+        menuItemName: menuItem.name,
+        orderNumber: orderNumber || referenceId,
+        productId: ing.productId,
+        productName: prod.name,
+        quantityUsed: totalQtyUsed,
+        unit: ing.unit,
+        warehouse: prod.warehouseLocation || 'Main Kitchen Store',
+        remainingQuantity: prod.currentStock,
+        cashier: activeCashier,
+        kitchenUser: activeKitchenUser,
+        reference: referenceId
+      };
+
+      if (!this.db.recipeConsumptionLogs) {
+        this.db.recipeConsumptionLogs = [];
+      }
+      this.db.recipeConsumptionLogs.unshift(logEntry);
+    });
+
+    this.saveToStorage();
+  }
+
+  public saveMenuItemIngredients(
+    menuItemId: string,
+    ingredients: MenuItemIngredient[],
+    changedBy: string,
+    reason: string
+  ): { success: boolean; error?: string } {
+    const menuItem = this.db.menuItems.find(mi => mi.id === menuItemId);
+    if (!menuItem) {
+      return { success: false, error: 'Menu item not found' };
+    }
+
+    for (const ing of ingredients) {
+      const prod = this.db.products.find(p => p.id === ing.productId);
+      if (!prod) {
+        return { success: false, error: `This ingredient (${ing.productName}) does not exist in Inventory.` };
+      }
+    }
+
+    const oldIngredients = menuItem.ingredients || [];
+    const changes: string[] = [];
+
+    oldIngredients.forEach(old => {
+      const matched = ingredients.find(curr => curr.productId === old.productId);
+      if (!matched) {
+        changes.push(`Removed ${old.productName}`);
+      } else if (matched.quantity !== old.quantity) {
+        changes.push(`${old.productName}: ${old.quantity} ${old.unit} → ${matched.quantity} ${matched.unit}`);
+      }
+    });
+
+    ingredients.forEach(curr => {
+      const matched = oldIngredients.find(old => old.productId === curr.productId);
+      if (!matched) {
+        changes.push(`Added ${curr.productName} (${curr.quantity} ${curr.unit})`);
+      }
+    });
+
+    const changeDetailsStr = changes.length > 0 ? changes.join(', ') : 'No ingredient changes';
+
+    if (oldIngredients.length > 0 && changes.length > 0) {
+      const version: RecipeVersion = {
+        id: `ver_${Date.now()}`,
+        menuItemId: menuItem.id,
+        menuItemName: menuItem.name,
+        versionDate: new Date().toISOString().split('T')[0],
+        changedBy,
+        reason: reason || 'Recipe Updated',
+        ingredients: JSON.parse(JSON.stringify(oldIngredients)),
+        changeDetails: changeDetailsStr
+      };
+
+      if (!this.db.recipeVersions) {
+        this.db.recipeVersions = [];
+      }
+      this.db.recipeVersions.unshift(version);
+    }
+
+    menuItem.ingredients = ingredients;
+    
+    this.addAuditLog('Update Menu Recipe', 'Inventory', `Updated recipe for ${menuItem.name}. Changes: ${changeDetailsStr}`);
+    this.saveToStorage();
+    return { success: true };
+  }
+
+  public duplicateRecipe(sourceId: string, targetId: string): { success: boolean; error?: string } {
+    const source = this.db.menuItems.find(mi => mi.id === sourceId);
+    if (!source) return { success: false, error: 'Source menu item not found' };
+
+    const target = this.db.menuItems.find(mi => mi.id === targetId);
+    if (!target) return { success: false, error: 'Target menu item not found' };
+
+    const ingredients = source.ingredients || [];
+    if (ingredients.length === 0) {
+      return { success: false, error: 'Source recipe has no ingredients' };
+    }
+
+    target.ingredients = JSON.parse(JSON.stringify(ingredients));
+    
+    this.addAuditLog('Duplicate Recipe', 'Inventory', `Duplicated recipe from "${source.name}" to "${target.name}"`);
+    this.saveToStorage();
+    return { success: true };
+  }
 
   public saveInventoryProduct(prod: InventoryProduct): void {
     const index = this.db.products.findIndex(p => p.id === prod.id);
@@ -1670,7 +2279,11 @@ class HotelStore {
     amount: number,
     category: string,
     description: string,
-    referenceId?: string
+    referenceId?: string,
+    paymentMethod?: string,
+    department?: string,
+    createdBy?: string,
+    isUnnecessary?: boolean
   ): void {
     const acc = this.db.accounts.find(a => a.id === accountId);
     if (!acc) return;
@@ -1679,6 +2292,32 @@ class HotelStore {
       acc.balance += amount;
     } else if (type === 'Expense') {
       acc.balance -= amount;
+    }
+
+    // Automatically resolve department if not explicitly given
+    let autoDept = department;
+    if (!autoDept) {
+      if (category.includes('Room') || category.includes('Laundry') || category.includes('Reservation') || category.includes('Check-in')) {
+        autoDept = 'Rooms';
+      } else if (category.includes('Restaurant') || category.includes('Food') || category.includes('Bar') || category.includes('POS')) {
+        autoDept = 'Food & Beverage';
+      } else if (category.includes('Payroll') || category.includes('Benefit')) {
+        autoDept = 'Human Resources';
+      } else if (category.includes('Repair') || category.includes('Maintenance')) {
+        autoDept = 'Maintenance';
+      } else if (category.includes('Utility') || category.includes('Electricity') || category.includes('Water') || category.includes('Internet')) {
+        autoDept = 'Operations';
+      } else if (category.includes('Tax') || category.includes('License')) {
+        autoDept = 'Administrative';
+      } else {
+        autoDept = 'Administrative';
+      }
+    }
+
+    // Automatically resolve payment method if not explicitly given
+    let autoPayMethod = paymentMethod;
+    if (!autoPayMethod) {
+      autoPayMethod = accountId === 'acc_1' ? 'Cash' : 'Bank Transfer';
     }
 
     const tx: Transaction = {
@@ -1690,12 +2329,115 @@ class HotelStore {
       description,
       referenceId,
       date: new Date().toISOString().split('T')[0],
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      paymentMethod: autoPayMethod,
+      department: autoDept,
+      createdBy: createdBy || 'System',
+      isUnnecessary: isUnnecessary || false
     };
 
     this.db.transactions.unshift(tx);
     this.addAuditLog('Ledger Entry', 'Accounting', `Recorded ${type} of ${this.formatMoney(amount)} to ${acc.name} (${category})`);
     this.saveToStorage();
+  }
+
+  public saveOwnerInvestment(investment: {
+    date: string;
+    amount: number;
+    currency: string;
+    paymentMethod: string;
+    reason: string;
+    description: string;
+    attachment?: string;
+    addedBy: string;
+  }): void {
+    const id = `inv_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
+    const newInvestment = { id, ...investment };
+    
+    if (!this.db.ownerInvestments) {
+      this.db.ownerInvestments = [];
+    }
+    this.db.ownerInvestments.unshift(newInvestment);
+
+    // Map payment method to accountId
+    let accountId = 'acc_2'; // default Main Bank Account
+    if (investment.paymentMethod === 'Cash') {
+      accountId = 'acc_1'; // Operating Cash Drawer
+    }
+
+    // Synchronize to Hotel Finance
+    this.addFinanceTransaction(
+      accountId,
+      'Income',
+      investment.amount,
+      'Owner Investment',
+      `Owner Investment Injection: ${investment.reason}. ${investment.description}`,
+      id,
+      investment.paymentMethod,
+      'CEO',
+      investment.addedBy
+    );
+  }
+
+  public saveOwnerWithdrawal(withdrawal: {
+    date: string;
+    amount: number;
+    reason: string;
+    paymentMethod: string;
+    approvedBy: string;
+    notes: string;
+  }): void {
+    const id = `wth_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
+    const newWithdrawal = { id, ...withdrawal };
+
+    if (!this.db.ownerWithdrawals) {
+      this.db.ownerWithdrawals = [];
+    }
+    this.db.ownerWithdrawals.unshift(newWithdrawal);
+
+    // Map payment method to accountId
+    let accountId = 'acc_2';
+    if (withdrawal.paymentMethod === 'Cash') {
+      accountId = 'acc_1';
+    }
+
+    // Synchronize to Hotel Finance (cash reduction, but excluded from standard net profit)
+    this.addFinanceTransaction(
+      accountId,
+      'Expense',
+      withdrawal.amount,
+      'Owner Withdrawal',
+      `Owner Withdrawal Draw: ${withdrawal.reason}. ${withdrawal.notes}`,
+      id,
+      withdrawal.paymentMethod,
+      'CEO',
+      withdrawal.approvedBy
+    );
+  }
+
+  public saveOwnerPersonalExpense(expense: {
+    date: string;
+    amount: number;
+    description: string;
+    category: string;
+    paymentMethod: string;
+  }): void {
+    const id = `ope_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
+    const newExpense = { id, ...expense };
+
+    if (!this.db.ownerExpenses) {
+      this.db.ownerExpenses = [];
+    }
+    this.db.ownerExpenses.unshift(newExpense);
+    this.saveToStorage();
+  }
+
+  public toggleExpenseUnnecessary(txId: string): void {
+    const tx = this.db.transactions.find(t => t.id === txId);
+    if (tx) {
+      tx.isUnnecessary = !tx.isUnnecessary;
+      this.saveToStorage();
+    }
   }
 
   // ============================================================================
@@ -1869,6 +2611,26 @@ class HotelStore {
   public seedSandbox(): void {
     this.resetDatabase();
 
+    // Create the default Grand Horizon Tenant
+    const defaultTenant: Tenant = {
+      id: 'tenant_grand_horizon',
+      name: 'The Grand Horizon Resort & Spa',
+      hotelCode: 'grandhorizon',
+      businessRegistrationNumber: 'BR-984-110A',
+      taxNumber: 'TX-984-110A',
+      logo: '✨',
+      address: '77 Ocean Vista Blvd, Sunset Cliffs',
+      phone: '+1 (555) 246-8000',
+      email: 'reservations@grandhorizon.com',
+      currency: 'USD',
+      timeZone: 'EST',
+      subscriptionPlan: 'Enterprise',
+      status: 'Active',
+      createdAt: new Date().toISOString()
+    };
+    this.db.tenants = [defaultTenant];
+    this.db.activeTenantId = 'tenant_grand_horizon';
+
     // 1. Hotel Profile
     const settings: HotelOSSettings = {
       profile: {
@@ -1900,14 +2662,14 @@ class HotelStore {
 
     // 2. Roles already exist. Let's seed users with secure simple passwords
     const users: User[] = [
-      { id: 'usr_admin', username: 'admin', passwordHash: 'admin123', role: 'Super Admin', name: 'Jonathan Pierce', email: 'j.pierce@grandhorizon.com', isActive: true, createdAt: new Date().toISOString() },
-      { id: 'usr_ceo', username: 'ceo', passwordHash: 'ceo123', role: 'CEO', name: 'Alena Voronova', email: 'a.voronova@grandhorizon.com', isActive: true, createdAt: new Date().toISOString() },
-      { id: 'usr_manager', username: 'manager', passwordHash: 'manager123', role: 'Manager', name: 'Devon Carter', email: 'd.carter@grandhorizon.com', isActive: true, createdAt: new Date().toISOString() },
-      { id: 'usr_recep', username: 'recep', passwordHash: 'recep123', role: 'Receptionist', name: 'Chloe Sterling', email: 'c.sterling@grandhorizon.com', isActive: true, createdAt: new Date().toISOString() },
-      { id: 'usr_cashier', username: 'cashier', passwordHash: 'cash123', role: 'Cashier', name: 'Marcus Brody', email: 'm.brody@grandhorizon.com', isActive: true, createdAt: new Date().toISOString() },
-      { id: 'usr_waiter', username: 'waiter', passwordHash: 'wait123', role: 'Waiter', name: 'Tariq Mendez', email: 't.mendez@grandhorizon.com', isActive: true, createdAt: new Date().toISOString() },
-      { id: 'usr_hk', username: 'hk', passwordHash: 'hk123', role: 'Housekeeper', name: 'Maria Santos', email: 'm.santos@grandhorizon.com', isActive: true, createdAt: new Date().toISOString() },
-      { id: 'usr_operator', username: 'operator', passwordHash: 'operator123', role: 'Manual Operator', name: 'Alex Vance', email: 'a.vance@grandhorizon.com', isActive: true, createdAt: new Date().toISOString() }
+      { id: 'usr_admin', tenant_id: 'tenant_grand_horizon', username: 'admin', passwordHash: 'admin123', role: 'Super Admin', name: 'Jonathan Pierce', email: 'j.pierce@grandhorizon.com', isActive: true, createdAt: new Date().toISOString() },
+      { id: 'usr_ceo', tenant_id: 'tenant_grand_horizon', username: 'ceo', passwordHash: 'ceo123', role: 'CEO', name: 'Alena Voronova', email: 'a.voronova@grandhorizon.com', isActive: true, createdAt: new Date().toISOString() },
+      { id: 'usr_manager', tenant_id: 'tenant_grand_horizon', username: 'manager', passwordHash: 'manager123', role: 'Manager', name: 'Devon Carter', email: 'd.carter@grandhorizon.com', isActive: true, createdAt: new Date().toISOString() },
+      { id: 'usr_recep', tenant_id: 'tenant_grand_horizon', username: 'recep', passwordHash: 'recep123', role: 'Receptionist', name: 'Chloe Sterling', email: 'c.sterling@grandhorizon.com', isActive: true, createdAt: new Date().toISOString() },
+      { id: 'usr_cashier', tenant_id: 'tenant_grand_horizon', username: 'cashier', passwordHash: 'cash123', role: 'Cashier', name: 'Marcus Brody', email: 'm.brody@grandhorizon.com', isActive: true, createdAt: new Date().toISOString() },
+      { id: 'usr_waiter', tenant_id: 'tenant_grand_horizon', username: 'waiter', passwordHash: 'wait123', role: 'Waiter', name: 'Tariq Mendez', email: 't.mendez@grandhorizon.com', isActive: true, createdAt: new Date().toISOString() },
+      { id: 'usr_hk', tenant_id: 'tenant_grand_horizon', username: 'hk', passwordHash: 'hk123', role: 'Housekeeper', name: 'Maria Santos', email: 'm.santos@grandhorizon.com', isActive: true, createdAt: new Date().toISOString() },
+      { id: 'usr_operator', tenant_id: 'tenant_grand_horizon', username: 'operator', passwordHash: 'operator123', role: 'Manual Operator', name: 'Alex Vance', email: 'a.vance@grandhorizon.com', isActive: true, createdAt: new Date().toISOString() }
     ];
 
     // 3. Departments
@@ -2144,6 +2906,16 @@ class HotelStore {
       { id: 'notif_2', title: 'VIP Checked-In', message: 'Guest Isabella Rossellini has checked into Room 501 Crest Imperial Penthouse.', type: 'checkin', isRead: false, createdAt: new Date().toISOString() }
     ];
 
+    // 20. Initial Room Inventory Items
+    const roomInventoryItems: RoomInventoryItem[] = [
+      { id: 'ri_1', roomId: 'rm_102', productId: 'prod_1', name: 'Scented Spa Massage Oils (1L)', category: 'Amenities', quantity: 2, expectedQuantity: 2, status: 'In Stock', notes: 'Checked during setup' },
+      { id: 'ri_2', roomId: 'rm_102', productId: 'prod_2', name: 'Premium Egypt Linen Pillowcases', category: 'Linen', quantity: 4, expectedQuantity: 4, status: 'In Stock' },
+      { id: 'ri_3', roomId: 'rm_501', productId: 'prod_1', name: 'Scented Spa Massage Oils (1L)', category: 'Amenities', quantity: 5, expectedQuantity: 5, status: 'In Stock' },
+      { id: 'ri_4', roomId: 'rm_501', productId: 'prod_2', name: 'Premium Egypt Linen Pillowcases', category: 'Linen', quantity: 8, expectedQuantity: 8, status: 'In Stock' },
+      { id: 'ri_5', roomId: 'rm_501', name: 'Imperial Champagne bottle', category: 'Minibar', quantity: 1, expectedQuantity: 2, status: 'Needs Replenishment', notes: 'One consumed by guest' },
+      { id: 'ri_6', roomId: 'rm_102', name: 'Local Draft Beers', category: 'Minibar', quantity: 4, expectedQuantity: 4, status: 'In Stock' }
+    ];
+
     this.db = {
       settings,
       users,
@@ -2174,14 +2946,10 @@ class HotelStore {
       notifications,
       auditLogs: [],
       shiftReports: [],
+      roomInventoryItems,
       isInitialized: true
     };
 
-    // Auto-login Super Admin
-    this.activeUser = users[0];
-    sessionStorage.setItem('hotel_os_session', JSON.stringify(users[0]));
-
-    this.addAuditLog('Sandbox Seeded', 'Settings', 'Database was loaded with high-fidelity resort sandbox simulation data');
     this.saveToStorage();
   }
 }

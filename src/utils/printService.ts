@@ -2179,3 +2179,158 @@ export function getFrontDeskSelectedReportHTML(reservations: Reservation[]): str
   `;
 }
 
+export function getInRoomInventoryStatusReportHTML(db: any): string {
+  const roomsHtml = db.rooms.map((rm: any) => {
+    const typeObj = db.roomTypes.find((t: any) => t.id === rm.roomTypeId);
+    const roomItems = (db.roomInventoryItems || []).filter((item: any) => item.roomId === rm.id);
+    const totalItems = roomItems.length;
+    const needsRep = roomItems.filter((item: any) => item.status === 'Needs Replenishment').length;
+    const missing = roomItems.filter((item: any) => item.status === 'Missing').length;
+    const inStock = roomItems.filter((item: any) => item.status === 'In Stock').length;
+
+    let rowClass = "";
+    if (missing > 0) rowClass = "bg-red-50/25";
+    else if (needsRep > 0) rowClass = "bg-amber-50/25";
+
+    return `
+      <tr class="${rowClass} border-b border-slate-100">
+        <td class="py-2.5 font-mono font-bold text-slate-800">Room ${rm.roomNumber}</td>
+        <td class="py-2.5 text-slate-600">${rm.building} - Floor ${rm.floor}</td>
+        <td class="py-2.5 text-slate-600">${typeObj?.name || 'N/A'}</td>
+        <td class="py-2.5 font-semibold text-center">${totalItems}</td>
+        <td class="py-2.5 text-center text-emerald-700 font-bold">${inStock}</td>
+        <td class="py-2.5 text-center text-amber-700 font-bold">${needsRep}</td>
+        <td class="py-2.5 text-center text-red-700 font-bold">${missing}</td>
+        <td class="py-2.5">
+          <span class="inline-block px-1.5 py-0.5 rounded text-[9px] font-bold ${
+            rm.status === 'Available' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'
+          }">${rm.status}</span>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  return `
+    <div class="p-6 space-y-6 max-w-4xl mx-auto">
+      <!-- HEADER -->
+      <div class="flex justify-between items-start border-b border-slate-200 pb-4">
+        <div>
+          <h1 class="text-xl font-editorial font-black text-slate-900 tracking-tight">IN-ROOM INVENTORY STATUS AUDIT</h1>
+          <p class="text-xs text-slate-400">Grand Horizon Resort • Comprehensive Housekeeping & Facility Management Log</p>
+        </div>
+        <div class="text-right text-xs text-slate-400 font-mono">
+          <div>Printed: ${new Date().toLocaleString()}</div>
+          <div>Auditor: Active Duty Terminal</div>
+        </div>
+      </div>
+
+      <!-- INVENTORY LIST -->
+      <div class="space-y-3">
+        <h3 class="text-xs font-black text-slate-900 uppercase tracking-wider">Facility Room Checklist Status Grid</h3>
+        <table class="w-full text-left text-xs">
+          <thead>
+            <tr class="border-b border-slate-200 text-[10px] font-black uppercase text-slate-400 tracking-wider">
+              <th class="pb-2">Room</th>
+              <th class="pb-2">Building / Level</th>
+              <th class="pb-2">Category</th>
+              <th class="pb-2 text-center">Total Assets</th>
+              <th class="pb-2 text-center">In Stock</th>
+              <th class="pb-2 text-center">Low Stock</th>
+              <th class="pb-2 text-center">Missing</th>
+              <th class="pb-2">Room Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${roomsHtml}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="text-center text-[10px] text-gray-400 italic pt-6 border-t border-gray-150">
+        Internal Operations Use Only. Please hand this checklist over to the Housekeeping department for replenishment.
+      </div>
+    </div>
+  `;
+}
+
+export function getSingleRoomInventoryReportHTML(db: any, room: any): string {
+  const roomItems = (db.roomInventoryItems || []).filter((item: any) => item.roomId === room.id);
+  const typeObj = db.roomTypes.find((t: any) => t.id === room.roomTypeId);
+
+  const activeReservation = db.reservations.find((res: any) => res.roomId === room.id && (res.status === 'Checked In' || res.status === 'Confirmed'));
+  const activeGuest = activeReservation ? db.guests.find((g: any) => g.id === activeReservation.guestId) : null;
+
+  const itemRows = roomItems.map((item: any) => `
+    <tr class="border-b border-slate-100">
+      <td class="py-2.5 font-semibold text-slate-800">${item.name}</td>
+      <td class="py-2.5 text-slate-600">${item.category}</td>
+      <td class="py-2.5 text-center font-bold text-slate-800">${item.quantity}</td>
+      <td class="py-2.5 text-center text-slate-400">/ ${item.expectedQuantity}</td>
+      <td class="py-2.5">
+        <span class="inline-block px-1.5 py-0.5 rounded text-[9px] font-bold ${
+          item.status === 'In Stock' ? 'bg-green-100 text-green-800' :
+          item.status === 'Needs Replenishment' ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-red-800'
+        }">${item.status}</span>
+      </td>
+      <td class="py-2.5 text-slate-500 italic">${item.notes || '-'}</td>
+    </tr>
+  `).join('');
+
+  return `
+    <div class="p-6 space-y-6 max-w-4xl mx-auto">
+      <!-- HEADER -->
+      <div class="flex justify-between items-start border-b border-slate-200 pb-4">
+        <div>
+          <h1 class="text-xl font-editorial font-black text-slate-900 tracking-tight">ROOM ${room.roomNumber} INVENTORY REPORT</h1>
+          <p class="text-xs text-slate-400">${room.building} • Floor ${room.floor} • Type: ${typeObj?.name || 'N/A'}</p>
+        </div>
+        <div class="text-right text-xs text-slate-400 font-mono">
+          <div>Printed: ${new Date().toLocaleString()}</div>
+          <div>Room Status: ${room.status}</div>
+        </div>
+      </div>
+
+      <!-- ACTIVE GUEST INFO -->
+      ${activeGuest ? `
+        <div class="p-4 bg-blue-50/50 border border-blue-100 rounded-xl space-y-1.5">
+          <strong class="text-xs text-blue-800 uppercase font-black block tracking-wider">Active Guest Stay Information</strong>
+          <div class="grid grid-cols-2 text-xs text-slate-600">
+            <div>Guest Name: <strong class="text-slate-800">${activeGuest.name}</strong></div>
+            <div>Stay Period: <strong class="text-slate-800">${activeReservation.checkInDate} to ${activeReservation.checkOutDate}</strong></div>
+            <div>Reservation Ref: <strong class="text-slate-800">${activeReservation.id}</strong></div>
+            <div>Billing Ledger: <strong class="text-slate-800">${activeReservation.paymentStatus || 'Unpaid'} (${store.formatMoney(activeReservation.amountPaid)} paid / ${store.formatMoney(activeReservation.totalAmount)} total)</strong></div>
+          </div>
+        </div>
+      ` : `
+        <div class="p-3 bg-slate-50 border border-slate-150 rounded-xl text-xs text-slate-500 italic">
+          No guest currently checked-in to this room.
+        </div>
+      `}
+
+      <!-- INVENTORY LIST -->
+      <div class="space-y-3">
+        <h3 class="text-xs font-black text-slate-900 uppercase tracking-wider">Registered Assets Checklist</h3>
+        <table class="w-full text-left text-xs">
+          <thead>
+            <tr class="border-b border-slate-200 text-[10px] font-black uppercase text-slate-400 tracking-wider">
+              <th class="pb-2">Asset Item</th>
+              <th class="pb-2">Category</th>
+              <th class="pb-2 text-center w-12">Qty</th>
+              <th class="pb-2 text-center w-12">Expected</th>
+              <th class="pb-2">Status</th>
+              <th class="pb-2">Checklist Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${itemRows || `<tr><td colspan="6" class="py-10 text-center text-slate-400 italic">No asset items defined for this room.</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="text-center text-[10px] text-gray-400 italic pt-6 border-t border-gray-150">
+        Grand Horizon Resort Facility Management Operations. Verification copy.
+      </div>
+    </div>
+  `;
+}
+

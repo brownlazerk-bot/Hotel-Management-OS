@@ -12,6 +12,8 @@ export const ROUTES: RouteConfig[] = [
   { path: '/login', tabId: 'login', requiresAuth: false },
   { path: '/dashboard', tabId: 'dashboard', requiresAuth: true },
   { path: '/ceo-dashboard', tabId: 'dashboard', requiresAuth: true },
+  { path: '/hotel-finance', tabId: 'hotel_finance', requiresAuth: true },
+  { path: '/ceo-finance', tabId: 'ceo_finance', requiresAuth: true },
   
   // Front Office
   { path: '/front-office', tabId: 'front_office', subTab: 'bookings', requiresAuth: true },
@@ -24,6 +26,7 @@ export const ROUTES: RouteConfig[] = [
   // Rooms
   { path: '/rooms', tabId: 'rooms', subTab: 'board', requiresAuth: true },
   { path: '/room-types', tabId: 'rooms', subTab: 'types', requiresAuth: true },
+  { path: '/room-inventory', tabId: 'rooms', subTab: 'inventory', requiresAuth: true },
   
   // Housekeeping & Maintenance (Operations)
   { path: '/housekeeping', tabId: 'operations', subTab: 'housekeeping', requiresAuth: true },
@@ -47,6 +50,7 @@ export const ROUTES: RouteConfig[] = [
   { path: '/vendors', tabId: 'inventory', subTab: 'suppliers', requiresAuth: true },
   { path: '/purchases', tabId: 'inventory', subTab: 'purchases', requiresAuth: true },
   { path: '/goods-received', tabId: 'inventory', subTab: 'purchases', requiresAuth: true },
+  { path: '/menu-ingredients', tabId: 'inventory', subTab: 'menu_ingredients', requiresAuth: true },
   
   // Finance & HR (Accounting & Employees)
   { path: '/accounting', tabId: 'finance', subTab: 'ledger', requiresAuth: true },

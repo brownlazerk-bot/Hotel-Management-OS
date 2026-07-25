@@ -133,6 +133,7 @@ export default function HRFinance({ initialTab }: { initialTab?: 'employees' | '
 
     const newUser: User = {
       id: usrId || `user_${Date.now()}`,
+      tenant_id: store.getActiveTenantId() || '',
       username: usrUsername.trim(),
       passwordHash: usrPassword || 'password123', // Default password if empty
       role: usrRole,

@@ -1,0 +1,39 @@
+{
+  "entities": {
+    "users": {
+      "title": "User",
+      "description": "User profiles linked to Firebase Auth UID",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "tenant_id": { "type": "string" },
+        "username": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string" },
+        "name": { "type": "string" },
+        "phoneNumber": { "type": "string" },
+        "country": { "type": "string" },
+        "isActive": { "type": "boolean" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["uid", "tenant_id", "email", "role", "name"]
+    },
+    "tenants": {
+      "title": "Tenant",
+      "description": "Hotel property tenant accounts",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "hotelCode": { "type": "string" },
+        "name": { "type": "string" },
+        "ownerName": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "country": { "type": "string" },
+        "status": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "name", "email", "ownerName"]
+    }
+  }
+}

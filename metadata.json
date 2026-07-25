@@ -1,6 +1,6 @@
 {
-  "name": "",
-  "description": "",
+  "name": "Hotel OS",
+  "description": "Multi-tenant hospitality management operating system with modern authentication and isolated tenant data access.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

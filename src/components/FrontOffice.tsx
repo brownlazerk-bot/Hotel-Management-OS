@@ -45,6 +45,16 @@ export default function FrontOffice({ initialTab }: { initialTab?: 'bookings' | 
   const [serviceOrderReservationId, setServiceOrderReservationId] = useState<string>('');
   const [transferRoomId, setTransferRoomId] = useState<string>('');
 
+  // Extra dynamic charges & payment states for guest bill ledger in real-time
+  const [extraChargeDesc, setExtraChargeDesc] = useState('');
+  const [extraChargeAmount, setExtraChargeAmount] = useState<number>(0);
+  const [extraChargeQty, setExtraChargeQty] = useState<number>(1);
+  const [extraChargeCat, setExtraChargeCat] = useState<'Room' | 'Minibar' | 'Laundry' | 'Dining' | 'Spa' | 'Other'>('Other');
+  
+  const [payAmount, setPayAmount] = useState<number>(0);
+  const [payMethod, setPayMethod] = useState<PaymentMethod>('Cash');
+  const [payRef, setPayRef] = useState('');
+
   // Selected Booking IDs for printing reports
   const [selectedReservationIds, setSelectedReservationIds] = useState<string[]>([]);
 
@@ -117,6 +127,39 @@ export default function FrontOffice({ initialTab }: { initialTab?: 'bookings' | 
     } else {
       alert(resObj.error || 'Failed to transfer room');
     }
+  };
+
+  const handleAddFolioCharge = (e: React.FormEvent, resId: string) => {
+    e.preventDefault();
+    if (!extraChargeDesc || extraChargeAmount <= 0 || extraChargeQty <= 0) return;
+    store.addReservationCharge(resId, {
+      description: extraChargeDesc,
+      amount: extraChargeAmount,
+      quantity: extraChargeQty,
+      category: extraChargeCat
+    });
+    // Sync local selectedRes so the UI updates
+    const updated = store.getDb().reservations.find(r => r.id === resId);
+    if (updated) setSelectedRes(updated);
+
+    // Reset fields
+    setExtraChargeDesc('');
+    setExtraChargeAmount(0);
+    setExtraChargeQty(1);
+    setExtraChargeCat('Other');
+  };
+
+  const handlePostFolioPayment = (e: React.FormEvent, resId: string) => {
+    e.preventDefault();
+    if (payAmount <= 0) return;
+    store.postReservationPayment(resId, payAmount, payMethod, payRef);
+    // Sync local selectedRes so the UI updates
+    const updated = store.getDb().reservations.find(r => r.id === resId);
+    if (updated) setSelectedRes(updated);
+
+    // Reset fields
+    setPayAmount(0);
+    setPayRef('');
   };
 
   // ============================================================================
@@ -900,60 +943,226 @@ export default function FrontOffice({ initialTab }: { initialTab?: 'bookings' | 
               </div>
 
               {/* Ledger Items */}
-              <table className="w-full text-left text-xs">
-                <thead>
-                  <tr className="border-b border-gray-150 text-[10px] font-bold text-gray-400 uppercase tracking-wider">
-                    <th className="py-2">Description</th>
-                    <th className="py-2 text-right">Quantity</th>
-                    <th className="py-2 text-right">Rate</th>
-                    <th className="py-2 text-right">Total</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  <tr>
-                    <td className="py-3 font-semibold text-gray-800">
-                      Room Nights Stay ({db.roomTypes.find(t => t.id === db.rooms.find(r => r.id === selectedRes.roomId)?.roomTypeId)?.name})
-                    </td>
-                    <td className="py-3 text-right">
-                      {Math.ceil(Math.abs(new Date(selectedRes.checkOutDate).getTime() - new Date(selectedRes.checkInDate).getTime()) / (1000 * 60 * 60 * 24))} nights
-                    </td>
-                    <td className="py-3 text-right">
-                      {store.formatMoney(db.roomTypes.find(t => t.id === db.rooms.find(r => r.id === selectedRes.roomId)?.roomTypeId)?.basePrice || 0)}
-                    </td>
-                    <td className="py-3 text-right font-bold text-gray-800">{store.formatMoney(selectedRes.totalAmount)}</td>
-                  </tr>
-                  {/* Any additional charges like restaurant tab can go here */}
-                </tbody>
-              </table>
+              <div className="space-y-4">
+                <span className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider pb-1 border-b border-gray-150">Itemized Folio Statements</span>
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="border-b border-gray-150 text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+                      <th className="py-2">Description</th>
+                      <th className="py-2 text-center">Category</th>
+                      <th className="py-2 text-right">Quantity</th>
+                      <th className="py-2 text-right">Rate</th>
+                      <th className="py-2 text-right">Total</th>
+                      <th className="py-2 text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 font-medium">
+                    {/* 1. Base Room Nights Charge */}
+                    {(() => {
+                      const nights = Math.ceil(Math.abs(new Date(selectedRes.checkOutDate).getTime() - new Date(selectedRes.checkInDate).getTime()) / (1000 * 60 * 60 * 24)) || 1;
+                      const roomObj = db.rooms.find(r => r.id === selectedRes.roomId);
+                      const roomTypeObj = roomObj ? db.roomTypes.find(t => t.id === roomObj.roomTypeId) : null;
+                      const baseRate = roomTypeObj?.basePrice || 0;
+                      const baseTotal = nights * baseRate;
+
+                      return (
+                        <tr>
+                          <td className="py-2.5 font-bold text-gray-800">
+                            Room Nights Stay ({roomTypeObj?.name || 'Standard'})
+                          </td>
+                          <td className="py-2.5 text-center">
+                            <span className="text-[9px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-bold uppercase">Room</span>
+                          </td>
+                          <td className="py-2.5 text-right font-semibold">{nights} nights</td>
+                          <td className="py-2.5 text-right font-semibold">{store.formatMoney(baseRate)}</td>
+                          <td className="py-2.5 text-right font-black text-gray-800">{store.formatMoney(baseTotal)}</td>
+                          <td className="py-2.5 text-right text-gray-400 font-normal italic">-</td>
+                        </tr>
+                      );
+                    })()}
+
+                    {/* 2. Extra dynamic charges */}
+                    {selectedRes.charges && selectedRes.charges.map((c) => (
+                      <tr key={c.id} className="hover:bg-gray-50/50">
+                        <td className="py-2.5 text-gray-800 font-semibold">{c.description}</td>
+                        <td className="py-2.5 text-center">
+                          <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase ${
+                            c.category === 'Minibar' ? 'bg-amber-50 text-amber-700' :
+                            c.category === 'Dining' ? 'bg-emerald-50 text-emerald-700' :
+                            c.category === 'Laundry' ? 'bg-indigo-50 text-indigo-700' :
+                            'bg-gray-100 text-gray-600'
+                          }`}>
+                            {c.category}
+                          </span>
+                        </td>
+                        <td className="py-2.5 text-right font-mono font-bold text-gray-600">x{c.quantity}</td>
+                        <td className="py-2.5 text-right font-mono text-gray-600">{store.formatMoney(c.amount)}</td>
+                        <td className="py-2.5 text-right font-mono font-bold text-gray-800">{store.formatMoney(c.amount * c.quantity)}</td>
+                        <td className="py-2.5 text-right">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (confirm(`Remove charge "${c.description}"?`)) {
+                                store.removeReservationCharge(selectedRes.id, c.id);
+                                const updated = store.getDb().reservations.find(r => r.id === selectedRes.id);
+                                if (updated) setSelectedRes(updated);
+                              }
+                            }}
+                            className="text-red-400 hover:text-red-600 p-1 hover:bg-red-50 rounded cursor-pointer font-bold text-[11px]"
+                            title="Delete Charge"
+                          >
+                            ✕
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* REAL-TIME FOLIO TRANSACTION INPUTS BENTO CARDS */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-gray-100">
+                
+                {/* CARD A: POST NEW DYNAMIC CHARGE */}
+                <div className="bg-gray-50 p-4 rounded-xl border border-gray-150 space-y-3">
+                  <span className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider">Post New Dynamic Charge</span>
+                  <form onSubmit={(e) => handleAddFolioCharge(e, selectedRes.id)} className="space-y-2.5 text-xs">
+                    <div>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Charge description (e.g. Minibar beer, Lost card)"
+                        value={extraChargeDesc}
+                        onChange={(e) => setExtraChargeDesc(e.target.value)}
+                        className="w-full px-2.5 py-1.5 bg-white border border-gray-250 rounded-lg text-xs"
+                      />
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                      <div className="col-span-1">
+                        <input
+                          type="number"
+                          min="1"
+                          required
+                          title="Quantity"
+                          placeholder="Qty"
+                          value={extraChargeQty}
+                          onChange={(e) => setExtraChargeQty(Number(e.target.value))}
+                          className="w-full px-2 py-1.5 bg-white border border-gray-250 rounded-lg text-center font-bold"
+                        />
+                      </div>
+                      <div className="col-span-1">
+                        <input
+                          type="number"
+                          min="0.01"
+                          step="0.01"
+                          required
+                          title="Price per item"
+                          placeholder="Price"
+                          value={extraChargeAmount || ''}
+                          onChange={(e) => setExtraChargeAmount(Number(e.target.value))}
+                          className="w-full px-2 py-1.5 bg-white border border-gray-250 rounded-lg text-center font-bold"
+                        />
+                      </div>
+                      <div className="col-span-1">
+                        <select
+                          value={extraChargeCat}
+                          onChange={(e) => setExtraChargeCat(e.target.value as any)}
+                          className="w-full px-1 py-1.5 bg-white border border-gray-250 rounded-lg font-bold text-[10px]"
+                        >
+                          <option value="Minibar">Minibar</option>
+                          <option value="Laundry">Laundry</option>
+                          <option value="Dining">Dining</option>
+                          <option value="Spa">Spa</option>
+                          <option value="Other">Other</option>
+                        </select>
+                      </div>
+                    </div>
+                    <button
+                      type="submit"
+                      className="w-full py-1.5 bg-[#E67E22] hover:bg-[#D35400] text-white rounded-lg font-bold text-[11px] cursor-pointer"
+                    >
+                      + Add Folio Charge
+                    </button>
+                  </form>
+                </div>
+
+                {/* CARD B: RECORD PAYMENT RECEIPT */}
+                <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-150 space-y-3">
+                  <span className="block text-[10px] font-bold text-blue-600 uppercase tracking-wider">Record Cashier Payment Receipt</span>
+                  <form onSubmit={(e) => handlePostFolioPayment(e, selectedRes.id)} className="space-y-2.5 text-xs">
+                    <div>
+                      <input
+                        type="number"
+                        min="0.01"
+                        step="0.01"
+                        required
+                        placeholder="Payment amount received"
+                        value={payAmount || ''}
+                        onChange={(e) => setPayAmount(Number(e.target.value))}
+                        className="w-full px-2.5 py-1.5 bg-white border border-blue-250 rounded-lg font-bold text-blue-800 text-xs"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <select
+                          value={payMethod}
+                          onChange={(e) => setPayMethod(e.target.value as any)}
+                          className="w-full px-2.5 py-1.5 bg-white border border-blue-250 rounded-lg font-bold text-xs"
+                        >
+                          <option value="Cash">Cash</option>
+                          <option value="Card">Card</option>
+                          <option value="Mobile Money">Mobile Money</option>
+                        </select>
+                      </div>
+                      <div>
+                        <input
+                          type="text"
+                          placeholder="Ref / Receipt #"
+                          value={payRef}
+                          onChange={(e) => setPayRef(e.target.value)}
+                          className="w-full px-2.5 py-1.5 bg-white border border-blue-250 rounded-lg text-xs"
+                        />
+                      </div>
+                    </div>
+                    <button
+                      type="submit"
+                      className="w-full py-1.5 bg-[#1B4F72] hover:bg-[#153E5B] text-white rounded-lg font-bold text-[11px] cursor-pointer"
+                    >
+                      Post Payment Transaction
+                    </button>
+                  </form>
+                </div>
+
+              </div>
 
               {/* Financial Calculation */}
-              <div className="flex justify-end pt-4 border-t border-gray-200">
+              <div className="flex justify-end pt-4 border-t border-gray-200 bg-gray-50/50 p-4 rounded-xl">
                 <div className="w-64 space-y-2 text-xs text-gray-600">
                   <div className="flex justify-between">
-                    <span>Subtotal Charges:</span>
-                    <span>{store.formatMoney(selectedRes.totalAmount)}</span>
+                    <span>Subtotal Billed (Base + Extras):</span>
+                    <span className="font-bold text-gray-700">{store.formatMoney(selectedRes.totalAmount)}</span>
                   </div>
                   <div className="flex justify-between">
                     <span>Taxes Inclusive ({db.settings.profile.taxRate}%):</span>
                     <span>{store.formatMoney(Math.round(selectedRes.totalAmount * (db.settings.profile.taxRate / 100)))}</span>
                   </div>
                   <div className="flex justify-between border-t border-gray-150 pt-2 font-bold text-gray-800">
-                    <span>Total Amount Billed:</span>
+                    <span>Total Net Invoice Folio:</span>
                     <span>{store.formatMoney(selectedRes.totalAmount)}</span>
                   </div>
                   <div className="flex justify-between text-green-600 font-bold">
-                    <span>Amount Paid:</span>
+                    <span>Accumulated Paid Credits:</span>
                     <span>-{store.formatMoney(selectedRes.amountPaid)}</span>
                   </div>
                   <div className="flex justify-between border-t border-gray-150 pt-2 font-bold text-lg text-[#E67E22]">
-                    <span>Pending Balance:</span>
+                    <span>Net Balance Due:</span>
                     <span>{store.formatMoney(selectedRes.totalAmount - selectedRes.amountPaid)}</span>
                   </div>
                 </div>
               </div>
 
               {/* Receipt Footer */}
-              <div className="text-center text-[10px] text-gray-400 pt-6 border-t border-gray-200">
+              <div className="text-center text-[10px] text-gray-400 pt-2">
                 Thank you for your stay at {db.settings.profile.name || 'The Grand Horizon'}. Have a safe journey!
               </div>
             </div>
@@ -969,12 +1178,20 @@ export default function FrontOffice({ initialTab }: { initialTab?: 'bookings' | 
                     const roomType = db.roomTypes.find(t => t.id === room?.roomTypeId);
                     const nights = Math.ceil(Math.abs(new Date(res.checkOutDate).getTime() - new Date(res.checkInDate).getTime()) / (1000 * 60 * 60 * 24)) || 1;
                     
+                    const basePrice = roomType?.basePrice || 0;
+                    const baseRoomCharge = nights * basePrice;
+
                     const chargesList = [
                       {
                         date: res.checkInDate,
-                        description: `Room Nights Stay (${roomType?.name || 'Standard'}) - ${nights} nights at ${store.formatMoney(roomType?.basePrice || 0)}/night`,
-                        amount: res.totalAmount
-                      }
+                        description: `Room Nights Stay (${roomType?.name || 'Standard'}) - ${nights} nights at ${store.formatMoney(basePrice)}/night`,
+                        amount: baseRoomCharge
+                      },
+                      ...(res.charges || []).map(c => ({
+                        date: c.date,
+                        description: `${c.description} [${c.category}] (x${c.quantity})`,
+                        amount: c.amount * c.quantity
+                      }))
                     ];
 
                     const invoiceHtml = getCheckoutInvoiceHTML(guest, room, res, roomType, chargesList);
@@ -995,7 +1212,11 @@ export default function FrontOffice({ initialTab }: { initialTab?: 'bookings' | 
                     txt += `Duration:    ${nights} nights\n`;
                     txt += `----------------------------------------\n`;
                     txt += `CHARGES SUMMARY:\n`;
-                    txt += `Room Charges:                 ${store.formatMoney(res.totalAmount)}\n`;
+                    txt += `Room Stay:                    ${store.formatMoney(baseRoomCharge)}\n`;
+                    (res.charges || []).forEach(c => {
+                      const descStr = (c.description.length > 20 ? c.description.substring(0, 17) + "..." : c.description).padEnd(20, ' ');
+                      txt += `${descStr} x${c.quantity}  ${store.formatMoney(c.amount * c.quantity)}\n`;
+                    });
                     txt += `Taxes Inclusive (${db.settings.profile.taxRate}%):         ${store.formatMoney(Math.round(res.totalAmount * (db.settings.profile.taxRate / 100)))}\n`;
                     txt += `----------------------------------------\n`;
                     txt += `Total Billed:                 ${store.formatMoney(res.totalAmount)}\n`;
