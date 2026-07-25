@@ -203,7 +203,7 @@ export default function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
             <div className="space-y-3 pt-4 border-t border-white/10">
               <div className="flex items-start space-x-3 text-xs text-slate-200">
                 <ShieldCheck className="h-4 w-4 text-emerald-400 mt-0.5 shrink-0" />
-                <span>Production Firebase Authentication & JWT session persistence.</span>
+                <span>Production Supabase Auth & JWT session persistence.</span>
               </div>
               <div className="flex items-start space-x-3 text-xs text-slate-200">
                 <Sparkles className="h-4 w-4 text-amber-400 mt-0.5 shrink-0" />

@@ -21,9 +21,7 @@ import PrinterStation from './components/PrinterStation';
 import HotelBusinessFinance from './components/HotelBusinessFinance';
 import CEOPersonalFinance from './components/CEOPersonalFinance';
 import { useRouter } from './utils/router';
-import { auth, firestore } from './lib/firebase';
-import { onAuthStateChanged } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore';
+import { supabase } from './lib/supabase';
 import { logoutCurrentSession } from './lib/authService';
 
 import {
@@ -128,37 +126,76 @@ export default function App() {
   const [resetSuccess, setResetSuccess] = useState('');
   const [resetError, setResetError] = useState('');
 
-  // Subscribe to central store and Firebase Auth changes
+  // Subscribe to central store and Supabase Auth changes
   useEffect(() => {
     const unsubscribeStore = store.subscribe(() => {
       setDb(store.getDb());
       setActiveUser(store.getActiveUser());
     });
 
-    const unsubscribeAuth = onAuthStateChanged(auth, async (fbUser) => {
-      if (fbUser) {
-        let userDocData = store.getDb().users.find(u => u.id === fbUser.uid || u.email?.toLowerCase() === fbUser.email?.toLowerCase());
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (session?.user) {
+        const suUser = session.user;
+        let userDocData = store.getDb().users.find(u => u.id === suUser.id || u.email?.toLowerCase() === suUser.email?.toLowerCase());
         let tenantDocData = store.getDb().tenants.find(t => t.id === userDocData?.tenant_id);
 
         if (!userDocData) {
           try {
-            const userSnap = await getDoc(doc(firestore, 'users', fbUser.uid));
-            if (userSnap.exists()) {
-              userDocData = userSnap.data() as User;
+            const { data: userData } = await supabase
+              .from('users')
+              .select('*')
+              .eq('id', suUser.id)
+              .single();
+
+            if (userData) {
+              userDocData = {
+                id: userData.id,
+                tenant_id: userData.hotel_id,
+                username: userData.username || suUser.email?.split('@')[0] || 'user',
+                passwordHash: 'SUPABASE_JWT_MANAGED',
+                role: userData.role || 'Super Admin',
+                name: userData.name || suUser.email?.split('@')[0] || 'User',
+                email: userData.email || suUser.email || '',
+                phoneNumber: userData.phone_number,
+                country: userData.country,
+                isActive: userData.is_active ?? true,
+                createdAt: userData.created_at || new Date().toISOString()
+              };
             }
           } catch (e) {
-            console.warn('Firestore user fetch warning:', e);
+            console.warn('Supabase user fetch warning:', e);
           }
         }
 
         if (userDocData && !tenantDocData) {
           try {
-            const tenantSnap = await getDoc(doc(firestore, 'tenants', userDocData.tenant_id));
-            if (tenantSnap.exists()) {
-              tenantDocData = tenantSnap.data() as Tenant;
+            const { data: hotelData } = await supabase
+              .from('hotels')
+              .select('*')
+              .eq('id', userDocData.tenant_id)
+              .single();
+
+            if (hotelData) {
+              tenantDocData = {
+                id: hotelData.id,
+                hotelCode: hotelData.hotel_code,
+                name: hotelData.name,
+                ownerName: hotelData.owner_name,
+                country: hotelData.country,
+                businessRegistrationNumber: hotelData.business_registration_number || 'REG-DEFAULT',
+                logo: hotelData.logo || '🏨',
+                currency: hotelData.currency || 'USD',
+                timeZone: hotelData.time_zone || 'UTC',
+                subscriptionPlan: hotelData.subscription_plan || 'Standard',
+                email: hotelData.email,
+                phone: hotelData.phone,
+                address: hotelData.address,
+                status: hotelData.status || 'Active',
+                createdAt: hotelData.created_at || new Date().toISOString()
+              };
             }
           } catch (e) {
-            console.warn('Firestore tenant fetch warning:', e);
+            console.warn('Supabase tenant fetch warning:', e);
           }
         }
 
@@ -172,7 +209,7 @@ export default function App() {
 
     return () => {
       unsubscribeStore();
-      unsubscribeAuth();
+      subscription.unsubscribe();
     };
   }, []);
 
