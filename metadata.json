@@ -1,6 +1,6 @@
 {
-  "name": "Hotel OS",
-  "description": "Multi-tenant hospitality management operating system with modern authentication and isolated tenant data access.",
+  "name": "Sky View Resort Cloud ERP",
+  "description": "Single shared cloud ERP system for Sky View Resort with live real-time state synchronization across all staff devices.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

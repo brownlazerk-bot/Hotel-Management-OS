@@ -322,60 +322,16 @@ export default function App() {
             </nav>
           </div>
 
-          {/* Sidebar bottom business switching panel */}
-          <div className="mt-4 pt-4 border-t border-white/10 space-y-3 shrink-0">
-            <div>
-              <span className="text-[9px] font-bold text-white/40 uppercase tracking-widest pl-1 block mb-1.5">Switch Business / Hotel</span>
-              <div className="space-y-1 max-h-36 overflow-y-auto pr-1">
-                {profiles.map(p => (
-                  <div key={p.id} className="group flex items-center justify-between rounded-lg px-2 py-1 text-xs transition bg-white/5 hover:bg-white/10">
-                    <button
-                      type="button"
-                      disabled={p.active}
-                      onClick={() => {
-                        if (confirm(`Switch console environment to "${p.name}"?`)) {
-                          store.switchBusiness(p.id);
-                        }
-                      }}
-                      className={`truncate text-left flex-grow font-semibold flex items-center space-x-1.5 transition ${p.active ? 'text-white font-bold' : 'text-white/60 hover:text-white cursor-pointer'}`}
-                      title={p.name}
-                    >
-                      <span className="text-xs">🏨</span>
-                      <span className="truncate">{p.name}</span>
-                    </button>
-                    {p.active ? (
-                      <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full shrink-0" />
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (confirm(`Are you sure you want to completely delete business "${p.name}"?`)) {
-                            store.deleteBusiness(p.id);
-                          }
-                        }}
-                        className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-300 text-xs font-black px-1 cursor-pointer"
-                        title="Delete profile"
-                      >
-                        ×
-                      </button>
-                    )}
-                  </div>
-                ))}
+          {/* Sidebar bottom property status panel */}
+          <div className="mt-4 pt-4 border-t border-white/10 space-y-2 shrink-0">
+            <div className="bg-white/5 rounded-lg p-2.5 text-xs text-white/70 space-y-1">
+              <div className="font-bold text-white flex items-center space-x-1.5">
+                <span className="text-emerald-400">●</span>
+                <span>Sky View Resort Live ERP</span>
               </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <button
-                type="button"
-                onClick={() => {
-                  if (confirm('Transition to register a new business or hotel? Your current records are saved.')) {
-                    store.prepareAddNewBusiness();
-                  }
-                }}
-                className="w-full py-1.5 bg-[#E67E22] hover:bg-[#D35400] text-white font-bold rounded-lg text-[10px] transition cursor-pointer text-center block"
-              >
-                + Add Other Business
-              </button>
+              <div className="text-[10px] text-white/50">
+                Single Shared Database Connection
+              </div>
             </div>
           </div>
         </aside>
@@ -386,7 +342,7 @@ export default function App() {
             <div className="w-64 bg-white dark:bg-gray-900 h-full p-5 flex flex-col justify-between overflow-y-auto">
               <div>
                 <div className="flex items-center justify-between mb-6 pb-2 border-b border-gray-100 dark:border-gray-800">
-                  <span className="text-sm font-bold text-gray-800 dark:text-white font-editorial">Hotel OS Menu</span>
+                  <span className="text-sm font-bold text-gray-800 dark:text-white font-editorial">Sky View Resort</span>
                   <button onClick={() => setMobileMenuOpen(false)}>
                     <X className="h-5 w-5 text-gray-500 dark:text-gray-400" />
                   </button>
@@ -416,66 +372,15 @@ export default function App() {
                 </nav>
               </div>
 
-              <div className="pt-4 border-t border-gray-100 dark:border-gray-800 text-xs space-y-4">
-                <div>
-                  <span className="block text-[9px] font-bold text-gray-400 uppercase tracking-widest mb-2">Switch Business / Hotel</span>
-                  <div className="space-y-1 max-h-32 overflow-y-auto pr-1">
-                    {profiles.map(p => (
-                      <div key={p.id} className="flex items-center justify-between rounded-lg px-2.5 py-1.5 bg-gray-50 dark:bg-gray-800 text-xs font-semibold">
-                        <button
-                          type="button"
-                          disabled={p.active}
-                          onClick={() => {
-                            if (confirm(`Switch console to "${p.name}"?`)) {
-                              store.switchBusiness(p.id);
-                              setMobileMenuOpen(false);
-                            }
-                          }}
-                          className={`truncate text-left flex-grow transition ${
-                            p.active
-                              ? 'text-emerald-600 dark:text-emerald-400 font-bold'
-                              : 'text-gray-600 dark:text-gray-300'
-                          }`}
-                        >
-                          🏨 {p.name}
-                        </button>
-                        {p.active ? (
-                          <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full" />
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (confirm(`Completely delete business "${p.name}"?`)) {
-                                store.deleteBusiness(p.id);
-                              }
-                            }}
-                            className="text-red-500 hover:text-red-700 text-xs font-black px-1"
-                          >
-                            ×
-                          </button>
-                        )}
-                      </div>
-                    ))}
+              <div className="pt-4 border-t border-gray-100 dark:border-gray-800 text-xs space-y-2">
+                <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-2.5 text-xs text-gray-600 dark:text-gray-300">
+                  <div className="font-bold text-gray-800 dark:text-white flex items-center space-x-1.5">
+                    <span className="text-emerald-500">●</span>
+                    <span>Sky View Resort ERP</span>
                   </div>
-                </div>
-
-                <div className="space-y-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (confirm('Create and register another business or hotel? Current data is saved.')) {
-                        store.prepareAddNewBusiness();
-                        setMobileMenuOpen(false);
-                      }
-                    }}
-                    className="w-full flex items-center justify-center space-x-1.5 py-2 bg-[#E67E22] hover:bg-[#D35400] text-white text-xs font-bold rounded-xl transition cursor-pointer"
-                  >
-                    <span>+ Add Other Business</span>
-                  </button>
-                </div>
-
-                <div className="pt-2 border-t border-gray-100 dark:border-gray-800">
-                  <span>Workspace: <strong className="text-gray-800 dark:text-white">{activeUser.name}</strong></span>
+                  <div className="text-[10px] text-gray-400">
+                    Live Shared Database Active
+                  </div>
                 </div>
               </div>
             </div>

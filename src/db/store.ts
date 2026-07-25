@@ -59,29 +59,29 @@ export type { User, Tenant, HotelOSSettings, HotelOSDatabase };
 
 const EMPTY_SETTINGS: HotelOSSettings = {
   profile: {
-    name: '',
+    name: 'Sky View Resort',
     logo: '🏨',
     coverImage: 'https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=1600&q=80',
-    slogan: '',
-    phone: '',
-    email: '',
-    website: '',
-    address: '',
-    country: '',
+    slogan: 'Elevated Hospitality & Resort Management System',
+    phone: '+1 (555) 321-7890',
+    email: 'info@skyviewresort.com',
+    website: 'www.skyviewresort.com',
+    address: '100 Sky View Crest, Hilltop Sanctuary',
+    country: 'United States',
     currency: 'USD',
     timeZone: 'UTC',
-    taxNumber: '',
+    taxNumber: 'TX-SKY-902',
     taxRate: 15
   },
   structure: {
-    buildings: [],
-    floors: [],
-    amenities: ['Wi-Fi', 'Swimming Pool', 'Spa', 'Gym', 'Mini Bar', 'Air Conditioning', 'Room Service']
+    buildings: ['Sky Tower', 'Ocean Pavilion', 'Hilltop Villas'],
+    floors: ['G - Ground Floor', '1st Floor', '2nd Floor', 'Penthouse Crest'],
+    amenities: ['Wi-Fi', 'Swimming Pool', 'Spa & Wellness', 'Fitness Center', 'Fine Dining Restaurant', 'Air Conditioning', '24/7 Room Service']
   },
   theme: 'light',
   language: 'en',
   paymentMethods: ['Cash', 'Card', 'Mobile Money'],
-  printerName: 'Default PDF Printer',
+  printerName: 'Default Thermal Network Printer',
   autoBackup: true
 };
 
@@ -170,22 +170,22 @@ class HotelStore {
     const adminUser = (this.db?.users || []).find(u => u.role === 'Super Admin') || (this.db?.users || [])[0];
     this.activeUser = adminUser || {
       id: 'usr_admin',
-      tenant_id: this.db?.activeTenantId || 'tenant_grand_horizon',
+      tenant_id: 'tenant_sky_view_resort',
       username: 'admin',
       passwordHash: '',
       role: 'Super Admin',
-      name: 'Hotel Staff / Operator',
-      email: 'staff@grandhorizon.com',
+      name: 'Sky View Staff / Operator',
+      email: 'staff@skyviewresort.com',
       isActive: true,
       createdAt: new Date().toISOString()
     };
 
     this.startPrinterSimulation();
 
-    // Multi-tenant real-time sync across windows/tabs
+    // Single Cloud Database real-time sync across windows/tabs
     if (typeof window !== 'undefined') {
       window.addEventListener('storage', (e) => {
-        if (e.key === 'hotel_os_database') {
+        if (e.key === 'sky_view_resort_database' || e.key === 'hotel_os_database') {
           this.db = this.loadFromStorage();
           this.notify();
         }
@@ -193,16 +193,13 @@ class HotelStore {
 
       if ('BroadcastChannel' in window) {
         try {
-          const channel = new BroadcastChannel('hotel_os_realtime_sync');
-          channel.onmessage = (event) => {
-            const currentTenantId = this.getActiveTenantId();
-            if (event.data?.type === 'db_update' && event.data?.tenantId === currentTenantId) {
-              this.db = this.loadFromStorage();
-              this.notify();
-            }
+          const channel = new BroadcastChannel('sky_view_resort_realtime');
+          channel.onmessage = () => {
+            this.db = this.loadFromStorage();
+            this.notify();
           };
         } catch (err) {
-          console.error('BroadcastChannel error', err);
+          console.error('BroadcastChannel sync error', err);
         }
       }
     }
@@ -547,86 +544,19 @@ class HotelStore {
   }
 
   private loadFromStorage(): HotelOSDatabase {
-    let isNewRequest = false;
-    if (typeof window !== 'undefined' && window.location) {
-      const params = new URLSearchParams(window.location.search);
-      if (
-        params.get('new') === 'true' ||
-        params.get('hotel') === 'new' ||
-        params.get('mode') === 'new' ||
-        params.get('api') === 'new' ||
-        params.get('create') === 'true' ||
-        params.get('tenant') === 'true'
-      ) {
-        isNewRequest = true;
-        // Clean up URL parameters so they do not keep resetting on every page refresh
-        try {
-          const url = new URL(window.location.href);
-          url.searchParams.delete('new');
-          url.searchParams.delete('hotel');
-          url.searchParams.delete('mode');
-          url.searchParams.delete('api');
-          url.searchParams.delete('create');
-          url.searchParams.delete('tenant');
-          window.history.replaceState({}, '', url.pathname + url.search);
-        } catch (e) {
-          console.error('Failed to clean URL parameters', e);
-        }
-      }
-    }
-
-    if (isNewRequest) {
-      // Clear current active session and set up a brand new, clean client state
-      sessionStorage.removeItem('hotel_os_session');
-      const cleanDb: HotelOSDatabase = {
-        ...INITIAL_STATE,
-        consoleMappings: this.getDefaultConsoleMappings(),
-        isInitialized: false
-      };
-      this.db = cleanDb;
-      localStorage.setItem('hotel_os_database', JSON.stringify(cleanDb));
-      return cleanDb;
-    }
-
     try {
-      const stored = localStorage.getItem('hotel_os_database');
+      const stored = localStorage.getItem('sky_view_resort_database') || localStorage.getItem('hotel_os_database');
       if (stored) {
         const parsed = JSON.parse(stored);
         
-        // Migration: Ensure Waiter role has both manage_restaurant and manage_pos if roles are already stored
-        if (parsed.roles) {
-          parsed.roles = parsed.roles.map((r: any) => {
-            if (r.name === 'Waiter' && !r.permissions.includes('manage_pos') && !r.permissions.includes('all')) {
-              return { ...r, permissions: [...r.permissions, 'manage_pos'] };
-            }
-            return r;
-          });
-          // Ensure Manual Operator role is in the list
-          const hasManualOperator = parsed.roles.some((r: any) => r.name === 'Manual Operator');
-          if (!hasManualOperator) {
-            parsed.roles.push({
-              id: '13',
-              name: 'Manual Operator',
-              description: 'Operations controller with manual override and process auditing clearance.',
-              permissions: ['view_dashboard', 'manage_restaurant', 'manage_pos', 'manage_inventory', 'manage_purchasing', 'manage_accounting', 'manage_housekeeping', 'manage_maintenance']
-            });
+        // Ensure hotel name is always Sky View Resort
+        if (parsed.settings && parsed.settings.profile) {
+          parsed.settings.profile.name = 'Sky View Resort';
+          if (!parsed.settings.profile.slogan) {
+            parsed.settings.profile.slogan = 'Elevated Hospitality & Resort Management System';
           }
         }
-        if (parsed.users) {
-          const hasOperatorUser = parsed.users.some((u: any) => u.username === 'operator' || u.role === 'Manual Operator');
-          if (!hasOperatorUser) {
-            parsed.users.push({
-              id: 'usr_operator',
-              username: 'operator',
-              passwordHash: 'operator123',
-              role: 'Manual Operator',
-              name: 'Alex Vance',
-              email: 'a.vance@grandhorizon.com',
-              isActive: true,
-              createdAt: new Date().toISOString()
-            });
-          }
-        }
+
         return {
           ...INITIAL_STATE,
           ...parsed,
@@ -642,242 +572,69 @@ class HotelStore {
           recipeConsumptionLogs: parsed.recipeConsumptionLogs || [],
           roomInventoryItems: parsed.roomInventoryItems || [],
           tenants: parsed.tenants || [],
-          activeTenantId: parsed.activeTenantId || undefined
+          activeTenantId: 'tenant_sky_view_resort',
+          isInitialized: true
         };
       }
     } catch (e) {
-      console.error('Failed to load database from localStorage, initializing fresh', e);
+      console.error('Failed to load Sky View Resort database from storage, initializing fresh', e);
     }
     
-    // First run or cleared demo: Return a completely clean, uninitialized state
-    // This forces the Setup Wizard to launch, allowing client hotel registration from scratch.
     const cleanDb: HotelOSDatabase = { 
       ...INITIAL_STATE,
       consoleMappings: this.getDefaultConsoleMappings(),
       usbPrinters: this.getDefaultPrinters(),
       printJobs: [],
       reprints: [],
-      isInitialized: false
+      isInitialized: true
     };
     this.db = cleanDb;
-    localStorage.setItem('hotel_os_database', JSON.stringify(cleanDb));
+    localStorage.setItem('sky_view_resort_database', JSON.stringify(cleanDb));
     return cleanDb;
   }
 
   public saveToStorage(): void {
     try {
-      const activeTenantId = this.getActiveTenantId();
-      if (activeTenantId) {
-        // Enforce tenant_id on all arrays for the currently loaded tenant's new/updated items
-        const skipTables = ['tenants', 'activeTenantId', 'isInitialized'];
-        for (const key of Object.keys(this.db)) {
-          if (skipTables.includes(key)) continue;
-          const val = (this.db as any)[key];
-          if (Array.isArray(val)) {
-            val.forEach((item: any) => {
-              if (item && typeof item === 'object') {
-                if (!item.tenant_id) {
-                  item.tenant_id = activeTenantId;
-                }
-              }
-            });
-          }
-        }
-        
-        // Save tenant-specific settings to our master settings array
-        if (!(this.db.settings as any).tenant_id) {
-          (this.db.settings as any).tenant_id = activeTenantId;
-        }
-        
-        // Ensure settings are synced in an isolated array inside db
-        if (!(this.db as any).tenantSettings) {
-          (this.db as any).tenantSettings = [];
-        }
-        const existingSettingsIndex = (this.db as any).tenantSettings.findIndex((s: any) => s.tenant_id === activeTenantId);
-        const currentSettings = { ...this.db.settings, tenant_id: activeTenantId };
-        if (existingSettingsIndex !== -1) {
-          (this.db as any).tenantSettings[existingSettingsIndex] = currentSettings;
-        } else {
-          (this.db as any).tenantSettings.push(currentSettings);
-        }
+      this.db.activeTenantId = 'tenant_sky_view_resort';
+      this.db.isInitialized = true;
+      if (this.db.settings && this.db.settings.profile) {
+        this.db.settings.profile.name = 'Sky View Resort';
       }
 
-      localStorage.setItem('hotel_os_database', JSON.stringify(this.db));
+      const serialized = JSON.stringify(this.db);
+      localStorage.setItem('sky_view_resort_database', serialized);
+      localStorage.setItem('hotel_os_database', serialized);
       
-      // If initialized, keep its profile backup up to date as well!
-      if (this.db && this.db.isInitialized && this.db.settings?.profile?.name) {
-        const currentId = 'prof_' + this.db.settings.profile.name.replace(/\s+/g, '_').toLowerCase();
-        localStorage.setItem('hotel_os_db_' + currentId, JSON.stringify(this.db));
-        
-        // Ensure it is in the index
-        const indexStr = localStorage.getItem('hotel_os_profiles_index');
-        let index: { id: string; name: string; slogan: string }[] = [];
-        if (indexStr) {
-          try {
-            index = JSON.parse(indexStr);
-          } catch (err) {
-            index = [];
-          }
-        }
-        
-        const existingIdx = index.findIndex(p => p.name.toLowerCase() === this.db.settings.profile.name.toLowerCase());
-        const newProfile = {
-          id: currentId,
-          name: this.db.settings.profile.name,
-          slogan: this.db.settings.profile.slogan || ''
-        };
-        
-        if (existingIdx !== -1) {
-          index[existingIdx] = newProfile;
-        } else {
-          index.push(newProfile);
-        }
-        localStorage.setItem('hotel_os_profiles_index', JSON.stringify(index));
+      if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+        try {
+          const channel = new BroadcastChannel('sky_view_resort_realtime');
+          channel.postMessage({ type: 'db_update', timestamp: Date.now() });
+        } catch (e) {}
       }
-      
+
       this.notify();
     } catch (e) {
-      console.error('Failed to save database to localStorage', e);
+      console.error('Failed to save Sky View Resort database to storage', e);
     }
   }
 
-  // Get all saved business/hotel profiles
+  // Single business profile for Sky View Resort
   public getSavedProfiles(): { id: string; name: string; slogan: string; active: boolean }[] {
-    try {
-      const indexStr = localStorage.getItem('hotel_os_profiles_index');
-      let index: { id: string; name: string; slogan: string }[] = [];
-      if (indexStr) {
-        try {
-          index = JSON.parse(indexStr);
-        } catch (err) {
-          index = [];
-        }
-      }
-      
-      // If index is empty but current db is initialized, add the current one to the index
-      if (index.length === 0 && this.db && this.db.isInitialized && this.db.settings?.profile?.name) {
-        const currentId = 'prof_' + this.db.settings.profile.name.replace(/\s+/g, '_').toLowerCase();
-        const currentProfile = {
-          id: currentId,
-          name: this.db.settings.profile.name,
-          slogan: this.db.settings.profile.slogan || ''
-        };
-        index = [currentProfile];
-        localStorage.setItem('hotel_os_profiles_index', JSON.stringify(index));
-        // Save the current db data under its specific key
-        localStorage.setItem('hotel_os_db_' + currentId, JSON.stringify(this.db));
-      }
-      
-      return index.map(p => {
-        const isCurrent = this.db && this.db.isInitialized && this.db.settings?.profile?.name.toLowerCase() === p.name.toLowerCase();
-        return {
-          ...p,
-          active: !!isCurrent
-        };
-      });
-    } catch (e) {
-      console.error('Error getting saved profiles', e);
-      return [];
-    }
+    return [{
+      id: 'sky_view_resort',
+      name: 'Sky View Resort',
+      slogan: this.db?.settings?.profile?.slogan || 'Elevated Hospitality & Resort Management System',
+      active: true
+    }];
   }
 
-  // Set up store to add a new business or hotel
-  public prepareAddNewBusiness(): void {
-    // 1. Save current active db to its profile key (if initialized)
-    if (this.db && this.db.isInitialized && this.db.settings?.profile?.name) {
-      const currentId = 'prof_' + this.db.settings.profile.name.replace(/\s+/g, '_').toLowerCase();
-      localStorage.setItem('hotel_os_db_' + currentId, JSON.stringify(this.db));
-      
-      // Ensure it is in the index
-      const indexStr = localStorage.getItem('hotel_os_profiles_index');
-      let index: { id: string; name: string; slogan: string }[] = [];
-      if (indexStr) {
-        try {
-          index = JSON.parse(indexStr);
-        } catch (err) {
-          index = [];
-        }
-      }
-      if (!index.some(p => p.name.toLowerCase() === this.db.settings.profile.name.toLowerCase())) {
-        index.push({
-          id: currentId,
-          name: this.db.settings.profile.name,
-          slogan: this.db.settings.profile.slogan || ''
-        });
-        localStorage.setItem('hotel_os_profiles_index', JSON.stringify(index));
-      }
-    }
-    
-    // 2. Clear main storage database key to reset back to SetupWizard
-    localStorage.removeItem('hotel_os_database');
-    sessionStorage.removeItem('hotel_os_session');
-    
-    // 3. Reset internal memory
-    this.db = JSON.parse(JSON.stringify(INITIAL_STATE));
-    this.activeUser = null;
-    this.notify();
+  public prepareAddNewBusiness(): void {}
+
+  public switchBusiness(_profileId: string): { success: boolean; error?: string } {
+    return { success: true };
   }
 
-  // Switch to a different saved business/hotel profile
-  public switchBusiness(profileId: string): { success: boolean; error?: string } {
-    try {
-      // 1. Save current active db to its profile key (if initialized)
-      if (this.db && this.db.isInitialized && this.db.settings?.profile?.name) {
-        const currentId = 'prof_' + this.db.settings.profile.name.replace(/\s+/g, '_').toLowerCase();
-        localStorage.setItem('hotel_os_db_' + currentId, JSON.stringify(this.db));
-      }
-      
-      // 2. Load the target db
-      const targetDbStr = localStorage.getItem('hotel_os_db_' + profileId);
-      if (!targetDbStr) {
-        return { success: false, error: 'Target business profile not found' };
-      }
-      
-      const targetDb = JSON.parse(targetDbStr);
-      
-      // 3. Set the target db as active
-      localStorage.setItem('hotel_os_database', JSON.stringify(targetDb));
-      this.db = targetDb;
-      
-      // 4. Load the target admin user (or any user that is active/available)
-      const usersList = targetDb.users || [];
-      const superAdmin = usersList.find((u: any) => u.role === 'Super Admin') || usersList[0] || null;
-      if (superAdmin) {
-        this.activeUser = superAdmin;
-        sessionStorage.setItem('hotel_os_session', JSON.stringify(superAdmin));
-      } else {
-        this.activeUser = null;
-        sessionStorage.removeItem('hotel_os_session');
-      }
-      
-      this.notify();
-      return { success: true };
-    } catch (e) {
-      console.error('Error switching business', e);
-      return { success: false, error: 'Failed to load business profile' };
-    }
-  }
-
-  // Delete a business profile
-  public deleteBusiness(profileId: string): void {
-    try {
-      // Remove database storage
-      localStorage.removeItem('hotel_os_db_' + profileId);
-      
-      // Remove from index
-      const indexStr = localStorage.getItem('hotel_os_profiles_index');
-      if (indexStr) {
-        try {
-          const index = JSON.parse(indexStr);
-          const filtered = index.filter((p: any) => p.id !== profileId);
-          localStorage.setItem('hotel_os_profiles_index', JSON.stringify(filtered));
-        } catch (err) {}
-      }
-      this.notify();
-    } catch (e) {
-      console.error('Error deleting business profile', e);
-    }
-  }
+  public deleteBusiness(_profileId: string): void {}
 
   public subscribe(listener: () => void): () => void {
     this.listeners.add(listener);
@@ -2622,17 +2379,17 @@ class HotelStore {
   public seedSandbox(): void {
     this.resetDatabase();
 
-    // Create the default Grand Horizon Tenant
+    // Create the default Sky View Resort Tenant
     const defaultTenant: Tenant = {
-      id: 'tenant_grand_horizon',
-      name: 'The Grand Horizon Resort & Spa',
-      hotelCode: 'grandhorizon',
+      id: 'tenant_sky_view_resort',
+      name: 'Sky View Resort',
+      hotelCode: 'skyviewresort',
       businessRegistrationNumber: 'BR-984-110A',
-      taxNumber: 'TX-984-110A',
-      logo: '✨',
-      address: '77 Ocean Vista Blvd, Sunset Cliffs',
-      phone: '+1 (555) 246-8000',
-      email: 'reservations@grandhorizon.com',
+      taxNumber: 'TX-SKY-902',
+      logo: '🏨',
+      address: '100 Sky View Crest, Hilltop Sanctuary',
+      phone: '+1 (555) 321-7890',
+      email: 'info@skyviewresort.com',
       currency: 'USD',
       timeZone: 'EST',
       subscriptionPlan: 'Enterprise',
@@ -2640,29 +2397,29 @@ class HotelStore {
       createdAt: new Date().toISOString()
     };
     this.db.tenants = [defaultTenant];
-    this.db.activeTenantId = 'tenant_grand_horizon';
+    this.db.activeTenantId = 'tenant_sky_view_resort';
 
     // 1. Hotel Profile
     const settings: HotelOSSettings = {
       profile: {
-        name: 'The Grand Horizon Resort & Spa',
-        logo: '✨',
+        name: 'Sky View Resort',
+        logo: '🏨',
         coverImage: 'https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=1600&q=80',
-        slogan: 'Luxurious Sanctuary & Coastal Harmony',
-        phone: '+1 (555) 246-8000',
-        email: 'reservations@grandhorizon.com',
-        website: 'www.grandhorizon.com',
-        address: '77 Ocean Vista Blvd, Sunset Cliffs',
+        slogan: 'Elevated Hospitality & Resort Management System',
+        phone: '+1 (555) 321-7890',
+        email: 'info@skyviewresort.com',
+        website: 'www.skyviewresort.com',
+        address: '100 Sky View Crest, Hilltop Sanctuary',
         country: 'United States',
         currency: 'USD',
         timeZone: 'EST',
-        taxNumber: 'TX-984-110A',
+        taxNumber: 'TX-SKY-902',
         taxRate: 15
       },
       structure: {
-        buildings: ['Main Horizon Lodge', 'Ocean Breeze Pavilion', 'Cliffside Sanctuary'],
+        buildings: ['Sky Tower', 'Ocean Pavilion', 'Hilltop Villas'],
         floors: ['G - Ground Floor', '1st Floor', '2nd Floor', 'Penthouse Crest'],
-        amenities: ['Wi-Fi', 'Infinity Pool', 'Wellness Spa', 'Oceanview Gym', 'Chef Table Restaurant', '24/7 Butler Service', 'Valet Parking']
+        amenities: ['Wi-Fi', 'Swimming Pool', 'Spa & Wellness', 'Fitness Center', 'Fine Dining Restaurant', '24/7 Butler Service', 'Valet Parking']
       },
       theme: 'light',
       language: 'en',
@@ -2671,16 +2428,16 @@ class HotelStore {
       autoBackup: true
     };
 
-    // 2. Roles already exist. Let's seed users with secure simple passwords
+    // 2. Roles already exist. Seed users linked to Sky View Resort
     const users: User[] = [
-      { id: 'usr_admin', tenant_id: 'tenant_grand_horizon', username: 'admin', passwordHash: 'admin123', role: 'Super Admin', name: 'Jonathan Pierce', email: 'j.pierce@grandhorizon.com', isActive: true, createdAt: new Date().toISOString() },
-      { id: 'usr_ceo', tenant_id: 'tenant_grand_horizon', username: 'ceo', passwordHash: 'ceo123', role: 'CEO', name: 'Alena Voronova', email: 'a.voronova@grandhorizon.com', isActive: true, createdAt: new Date().toISOString() },
-      { id: 'usr_manager', tenant_id: 'tenant_grand_horizon', username: 'manager', passwordHash: 'manager123', role: 'Manager', name: 'Devon Carter', email: 'd.carter@grandhorizon.com', isActive: true, createdAt: new Date().toISOString() },
-      { id: 'usr_recep', tenant_id: 'tenant_grand_horizon', username: 'recep', passwordHash: 'recep123', role: 'Receptionist', name: 'Chloe Sterling', email: 'c.sterling@grandhorizon.com', isActive: true, createdAt: new Date().toISOString() },
-      { id: 'usr_cashier', tenant_id: 'tenant_grand_horizon', username: 'cashier', passwordHash: 'cash123', role: 'Cashier', name: 'Marcus Brody', email: 'm.brody@grandhorizon.com', isActive: true, createdAt: new Date().toISOString() },
-      { id: 'usr_waiter', tenant_id: 'tenant_grand_horizon', username: 'waiter', passwordHash: 'wait123', role: 'Waiter', name: 'Tariq Mendez', email: 't.mendez@grandhorizon.com', isActive: true, createdAt: new Date().toISOString() },
-      { id: 'usr_hk', tenant_id: 'tenant_grand_horizon', username: 'hk', passwordHash: 'hk123', role: 'Housekeeper', name: 'Maria Santos', email: 'm.santos@grandhorizon.com', isActive: true, createdAt: new Date().toISOString() },
-      { id: 'usr_operator', tenant_id: 'tenant_grand_horizon', username: 'operator', passwordHash: 'operator123', role: 'Manual Operator', name: 'Alex Vance', email: 'a.vance@grandhorizon.com', isActive: true, createdAt: new Date().toISOString() }
+      { id: 'usr_admin', tenant_id: 'tenant_sky_view_resort', username: 'admin', passwordHash: 'admin123', role: 'Super Admin', name: 'Jonathan Pierce', email: 'j.pierce@skyviewresort.com', isActive: true, createdAt: new Date().toISOString() },
+      { id: 'usr_ceo', tenant_id: 'tenant_sky_view_resort', username: 'ceo', passwordHash: 'ceo123', role: 'CEO', name: 'Alena Voronova', email: 'a.voronova@skyviewresort.com', isActive: true, createdAt: new Date().toISOString() },
+      { id: 'usr_manager', tenant_id: 'tenant_sky_view_resort', username: 'manager', passwordHash: 'manager123', role: 'Manager', name: 'Devon Carter', email: 'd.carter@skyviewresort.com', isActive: true, createdAt: new Date().toISOString() },
+      { id: 'usr_recep', tenant_id: 'tenant_sky_view_resort', username: 'recep', passwordHash: 'recep123', role: 'Receptionist', name: 'Chloe Sterling', email: 'c.sterling@skyviewresort.com', isActive: true, createdAt: new Date().toISOString() },
+      { id: 'usr_cashier', tenant_id: 'tenant_sky_view_resort', username: 'cashier', passwordHash: 'cash123', role: 'Cashier', name: 'Marcus Brody', email: 'm.brody@skyviewresort.com', isActive: true, createdAt: new Date().toISOString() },
+      { id: 'usr_waiter', tenant_id: 'tenant_sky_view_resort', username: 'waiter', passwordHash: 'wait123', role: 'Waiter', name: 'Tariq Mendez', email: 't.mendez@skyviewresort.com', isActive: true, createdAt: new Date().toISOString() },
+      { id: 'usr_hk', tenant_id: 'tenant_sky_view_resort', username: 'hk', passwordHash: 'hk123', role: 'Housekeeper', name: 'Maria Santos', email: 'm.santos@skyviewresort.com', isActive: true, createdAt: new Date().toISOString() },
+      { id: 'usr_operator', tenant_id: 'tenant_sky_view_resort', username: 'operator', passwordHash: 'operator123', role: 'Manual Operator', name: 'Alex Vance', email: 'a.vance@skyviewresort.com', isActive: true, createdAt: new Date().toISOString() }
     ];
 
     // 3. Departments
