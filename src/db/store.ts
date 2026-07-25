@@ -160,16 +160,25 @@ class HotelStore {
 
   constructor() {
     this.db = this.loadFromStorage();
-    
-    // Check if session exists in sessionStorage
-    const storedUser = sessionStorage.getItem('hotel_os_session');
-    if (storedUser) {
-      try {
-        this.activeUser = JSON.parse(storedUser);
-      } catch (e) {
-        this.activeUser = null;
-      }
+
+    // Auto-seed if empty or uninitialized so database features are ready
+    if (!this.db.isInitialized || !this.db.rooms || this.db.rooms.length === 0) {
+      this.seedSandbox();
     }
+
+    // Set default active user for shared workspace
+    const adminUser = (this.db?.users || []).find(u => u.role === 'Super Admin') || (this.db?.users || [])[0];
+    this.activeUser = adminUser || {
+      id: 'usr_admin',
+      tenant_id: this.db?.activeTenantId || 'tenant_grand_horizon',
+      username: 'admin',
+      passwordHash: '',
+      role: 'Super Admin',
+      name: 'Hotel Staff / Operator',
+      email: 'staff@grandhorizon.com',
+      isActive: true,
+      createdAt: new Date().toISOString()
+    };
 
     this.startPrinterSimulation();
 
@@ -970,26 +979,28 @@ class HotelStore {
   }
 
   public logout(): void {
-    if (this.activeUser) {
-      this.addAuditLog('User Logout', 'Authentication', `User ${this.activeUser.username} logged out`);
-    }
-    this.activeUser = null;
-    sessionStorage.removeItem('hotel_os_session');
+    // No-op in single shared workspace mode
     this.notify();
   }
 
-  public getActiveUser(): User | null {
-    return this.activeUser;
+  public getActiveUser(): User {
+    if (this.activeUser) return this.activeUser;
+    const adminUser = (this.db?.users || []).find(u => u.role === 'Super Admin') || (this.db?.users || [])[0];
+    return adminUser || {
+      id: 'usr_admin',
+      tenant_id: this.db?.activeTenantId || 'tenant_grand_horizon',
+      username: 'admin',
+      passwordHash: '',
+      role: 'Super Admin',
+      name: 'Hotel Staff / Operator',
+      email: 'staff@grandhorizon.com',
+      isActive: true,
+      createdAt: new Date().toISOString()
+    };
   }
 
   public hasPermission(perm: Permission): boolean {
-    if (!this.activeUser) return false;
-    if (this.activeUser.role === 'Super Admin') return true;
-    
-    const roleObj = this.db.roles.find(r => r.name === this.activeUser?.role);
-    if (!roleObj) return false;
-    
-    return roleObj.permissions.includes('all') || roleObj.permissions.includes(perm);
+    return true;
   }
 
   // ============================================================================

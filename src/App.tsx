@@ -4,8 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { store, User, Tenant } from './db/store';
-import AuthScreen from './components/AuthScreen';
+import { store } from './db/store';
 import Dashboard from './components/Dashboard';
 import FrontOffice from './components/FrontOffice';
 import RoomManagement from './components/RoomManagement';
@@ -21,8 +20,6 @@ import PrinterStation from './components/PrinterStation';
 import HotelBusinessFinance from './components/HotelBusinessFinance';
 import CEOPersonalFinance from './components/CEOPersonalFinance';
 import { useRouter } from './utils/router';
-import { supabase } from './lib/supabase';
-import { logoutCurrentSession } from './lib/authService';
 
 import {
   Building,
@@ -34,32 +31,24 @@ import {
   Sparkles,
   Settings,
   Bell,
-  LogOut,
   Moon,
   Sun,
-  Shield,
   Menu,
   X,
-  Lock,
-  RefreshCw,
   ClipboardList,
   GitPullRequest,
   Waves,
   Printer,
-  Search,
-  Plus,
-  Key,
-  Check,
-  Trash2,
   Coins,
-  Wallet
+  Wallet,
+  CheckCircle2
 } from 'lucide-react';
 
 export default function App() {
   const [db, setDb] = useState(store.getDb());
-  const [activeUser, setActiveUser] = useState(store.getActiveUser());
+  const activeUser = store.getActiveUser();
   
-  const { currentPath, routeConfig, navigate } = useRouter();
+  const { routeConfig, navigate } = useRouter();
 
   const getTabPath = (tabId: string) => {
     switch (tabId) {
@@ -92,124 +81,13 @@ export default function App() {
 
   const profiles = store.getSavedProfiles();
 
-  // Login Form States
-  const [loginUser, setLoginUser] = useState('');
-  const [loginPass, setLoginPass] = useState('');
-  const [loginHotelCode, setLoginHotelCode] = useState(() => {
-    const activeTenantId = store.getActiveTenantId();
-    if (activeTenantId) {
-      const activeTenant = store.getDb().tenants?.find(t => t.id === activeTenantId);
-      if (activeTenant) return activeTenant.hotelCode;
-    }
-    return 'grandhorizon';
-  });
-  const [loginError, setLoginError] = useState('');
-
-  // Operator Self-Registration States
-  const [loginTab, setLoginTab] = useState<'login' | 'register'>('login');
-  const [regName, setRegName] = useState('');
-  const [regUsername, setRegUsername] = useState('');
-  const [regEmail, setRegEmail] = useState('');
-  const [regPassword, setRegPassword] = useState('');
-  const [regRole, setRegRole] = useState('Receptionist');
-  const [regError, setRegError] = useState('');
-  const [regSuccess, setRegSuccess] = useState('');
-
-  // Created Accounts Tracker search query
-  const [userSearchQuery, setUserSearchQuery] = useState('');
-
-  // Forgot Password States
-  const [isForgotPassword, setIsForgotPassword] = useState(false);
-  const [resetUsername, setResetUsername] = useState('');
-  const [resetCode, setResetCode] = useState('');
-  const [newAdminPassword, setNewAdminPassword] = useState('');
-  const [resetSuccess, setResetSuccess] = useState('');
-  const [resetError, setResetError] = useState('');
-
-  // Subscribe to central store and Supabase Auth changes
+  // Subscribe to central store
   useEffect(() => {
     const unsubscribeStore = store.subscribe(() => {
       setDb(store.getDb());
-      setActiveUser(store.getActiveUser());
     });
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (session?.user) {
-        const suUser = session.user;
-        let userDocData = store.getDb().users.find(u => u.id === suUser.id || u.email?.toLowerCase() === suUser.email?.toLowerCase());
-        let tenantDocData = store.getDb().tenants.find(t => t.id === userDocData?.tenant_id);
-
-        if (!userDocData) {
-          try {
-            const { data: userData } = await supabase
-              .from('users')
-              .select('*')
-              .eq('id', suUser.id)
-              .single();
-
-            if (userData) {
-              userDocData = {
-                id: userData.id,
-                tenant_id: userData.hotel_id,
-                username: userData.username || suUser.email?.split('@')[0] || 'user',
-                passwordHash: 'SUPABASE_JWT_MANAGED',
-                role: userData.role || 'Super Admin',
-                name: userData.name || suUser.email?.split('@')[0] || 'User',
-                email: userData.email || suUser.email || '',
-                phoneNumber: userData.phone_number,
-                country: userData.country,
-                isActive: userData.is_active ?? true,
-                createdAt: userData.created_at || new Date().toISOString()
-              };
-            }
-          } catch (e) {
-            console.warn('Supabase user fetch warning:', e);
-          }
-        }
-
-        if (userDocData && !tenantDocData) {
-          try {
-            const { data: hotelData } = await supabase
-              .from('hotels')
-              .select('*')
-              .eq('id', userDocData.tenant_id)
-              .single();
-
-            if (hotelData) {
-              tenantDocData = {
-                id: hotelData.id,
-                hotelCode: hotelData.hotel_code,
-                name: hotelData.name,
-                ownerName: hotelData.owner_name,
-                country: hotelData.country,
-                businessRegistrationNumber: hotelData.business_registration_number || 'REG-DEFAULT',
-                logo: hotelData.logo || '🏨',
-                currency: hotelData.currency || 'USD',
-                timeZone: hotelData.time_zone || 'UTC',
-                subscriptionPlan: hotelData.subscription_plan || 'Standard',
-                email: hotelData.email,
-                phone: hotelData.phone,
-                address: hotelData.address,
-                status: hotelData.status || 'Active',
-                createdAt: hotelData.created_at || new Date().toISOString()
-              };
-            }
-          } catch (e) {
-            console.warn('Supabase tenant fetch warning:', e);
-          }
-        }
-
-        if (userDocData && tenantDocData) {
-          store.setActiveUserAndTenant(userDocData, tenantDocData);
-          setDb(store.getDb());
-          setActiveUser(store.getActiveUser());
-        }
-      }
-    });
-
     return () => {
       unsubscribeStore();
-      subscription.unsubscribe();
     };
   }, []);
 
@@ -222,272 +100,101 @@ export default function App() {
     }
   }, [darkMode]);
 
-  // Authorization routing redirects
-  useEffect(() => {
-    if (!activeUser && currentPath !== '/login') {
-      navigate('/login');
-    } else if (activeUser && (currentPath === '/login' || currentPath === '/')) {
-      navigate('/dashboard');
-    }
-  }, [activeUser, currentPath, navigate]);
-
   // ============================================================================
-  // PERMISSION GATES (RBAC)
+  // ALL MODULE TABS AVAILABLE IN SHARED WORKSPACE
   // ============================================================================
   const tabs = [
     {
       id: 'dashboard',
       label: 'Executive Analytics',
       icon: LayoutDashboard,
-      component: Dashboard,
-      permission: 'view_dashboard'
+      component: Dashboard
     },
     {
       id: 'front_office',
       label: 'Front Desk Office',
       icon: Users,
-      component: FrontOffice,
-      permission: 'manage_guests'
+      component: FrontOffice
     },
     {
       id: 'rooms',
       label: 'Room Inventory',
       icon: Grid,
-      component: RoomManagement,
-      permission: 'manage_rooms'
+      component: RoomManagement
     },
     {
       id: 'dining',
       label: 'Food & Dining POS',
       icon: UtensilsCrossed,
-      component: RestaurantPOS,
-      permission: 'manage_restaurant'
+      component: RestaurantPOS
     },
     {
       id: 'inventory',
       label: 'Procure & Stock',
       icon: Package,
-      component: InventoryPurchasing,
-      permission: 'manage_inventory'
+      component: InventoryPurchasing
     },
     {
       id: 'reports',
       label: 'Shift Reconciliation',
       icon: ClipboardList,
-      component: ShiftReporting,
-      permission: 'view_dashboard'
+      component: ShiftReporting
     },
     {
       id: 'workflows',
       label: 'Operations Workflows',
       icon: GitPullRequest,
-      component: Workflows,
-      permission: 'view_dashboard'
+      component: Workflows
     },
     {
       id: 'pool',
       label: 'Swimming Pool Ops',
       icon: Waves,
-      component: SwimmingPoolConsole,
-      permission: 'view_dashboard'
+      component: SwimmingPoolConsole
     },
     {
       id: 'finance',
       label: 'HR & Ledger',
       icon: Sparkles,
-      component: HRFinance,
-      permission: 'manage_accounting'
+      component: HRFinance
     },
     {
       id: 'hotel_finance',
       label: 'Hotel Business Finance',
       icon: Coins,
-      component: HotelBusinessFinance,
-      permission: 'manage_accounting'
+      component: HotelBusinessFinance
     },
     {
       id: 'ceo_finance',
       label: 'CEO Personal Finance',
       icon: Wallet,
-      component: CEOPersonalFinance,
-      permission: 'manage_accounting'
+      component: CEOPersonalFinance
     },
     {
       id: 'operations',
       label: 'Operations & Repair',
       icon: Building,
-      component: HousekeepingMaintenance,
-      permission: 'manage_housekeeping'
+      component: HousekeepingMaintenance
     },
     {
       id: 'printing',
       label: 'Thermal Print Station',
       icon: Printer,
-      component: PrinterStation,
-      permission: 'manage_settings'
+      component: PrinterStation
     },
     {
       id: 'settings',
       label: 'Global Settings',
       icon: Settings,
-      component: SettingsComponent,
-      permission: 'manage_settings'
+      component: SettingsComponent
     }
   ];
 
-  const allowedTabs = tabs.filter(tab => {
-    if (!activeUser) return false;
-    if (activeUser.role === 'Super Admin') return true;
-    if (tab.id === 'ceo_finance') {
-      return activeUser.role === 'CEO';
-    }
-    if (tab.id === 'hotel_finance') {
-      return ['CEO', 'Accountant', 'Manager'].includes(activeUser.role);
-    }
-    if (tab.id === 'dining') {
-      return store.hasPermission('manage_restaurant') || store.hasPermission('manage_pos');
-    }
-    return store.hasPermission(tab.permission as any);
-  });
-
-  // Ensure active tab is allowed, otherwise fall back
-  useEffect(() => {
-    if (activeUser && allowedTabs.length > 0) {
-      const isAllowed = allowedTabs.some(t => t.id === activeTab);
-      if (!isAllowed) {
-        setActiveTab(allowedTabs[0].id);
-      }
-    }
-  }, [activeUser, activeTab, allowedTabs]);
-
-  // ============================================================================
-  // OPERATIONS
-  // ============================================================================
-  const handleLoginSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!loginUser || !loginPass) return;
-
-    const res = store.login(loginUser.trim().toLowerCase(), loginPass, loginHotelCode.trim().toLowerCase());
-    if (res.success) {
-      setLoginError('');
-      setLoginUser('');
-      setLoginPass('');
-    } else {
-      setLoginError(res.error || 'Login failed');
-    }
-  };
-
-  const handleRegisterStaffSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!regName || !regUsername || !regPassword || !regRole) {
-      setRegError('All fields are required.');
-      setRegSuccess('');
-      return;
-    }
-
-    const cleanedUsername = regUsername.trim().toLowerCase();
-    const usernameExists = db.users.some(u => u.username.toLowerCase() === cleanedUsername);
-    if (usernameExists) {
-      setRegError('Username already exists in this hotel.');
-      setRegSuccess('');
-      return;
-    }
-
-    const newUser = {
-      id: `usr_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
-      tenant_id: store.getActiveTenantId(),
-      name: regName.trim(),
-      username: cleanedUsername,
-      passwordHash: regPassword, // plaintext in this local sandbox simulation
-      role: regRole as any,
-      email: regEmail.trim() || `${cleanedUsername}@hotel.com`,
-      isActive: true,
-      createdAt: new Date().toISOString()
-    };
-
-    store.saveUser(newUser);
-    setRegSuccess(`Account for "${newUser.name}" as ${newUser.role} successfully registered! Autologging in...`);
-    setRegError('');
-
-    // Reset registration form
-    setRegName('');
-    setRegUsername('');
-    setRegEmail('');
-    setRegPassword('');
-
-    // Auto login
-    setTimeout(() => {
-      store.login(newUser.username, newUser.passwordHash, loginHotelCode.trim().toLowerCase());
-      setRegSuccess('');
-    }, 1200);
-  };
-
-  const handlePasswordResetSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!resetUsername || !resetCode || !newAdminPassword) {
-      setResetError('All fields are required.');
-      setResetSuccess('');
-      return;
-    }
-
-    if (resetUsername.trim().toLowerCase() !== 'yuskar' || resetCode.trim() !== 'yuskar123') {
-      setResetError('Invalid reset username or reset code.');
-      setResetSuccess('');
-      return;
-    }
-
-    const success = store.resetAdminPassword(newAdminPassword);
-    if (success) {
-      setResetSuccess('Success! Admin password has been successfully reset. You can now use your new password.');
-      setResetError('');
-      setResetUsername('');
-      setResetCode('');
-      setNewAdminPassword('');
-    } else {
-      setResetError('Failed to locate Admin account to reset password.');
-      setResetSuccess('');
-    }
-  };
-
-  const handleQuickLogin = (username: string) => {
-    // Standard password across sandbox simulation is username123 or just common password
-    // Looking up user's stored password
-    const targetUser = db.users.find(u => u.username === username);
-    if (targetUser) {
-      const res = store.login(username, targetUser.passwordHash);
-      if (res.success) {
-        setLoginError('');
-      }
-    }
-  };
-
-  const handleLogout = async () => {
-    await logoutCurrentSession();
-    setActiveUser(null);
-    navigate('/login');
-  };
+  const allowedTabs = tabs;
 
   const handleClearNotifications = () => {
     store.clearNotifications();
   };
-
-  // ============================================================================
-  // RENDERING
-  // ============================================================================
-
-  // Authentication Gate (Login & Hotel Registration)
-  if (!activeUser || currentPath === '/login') {
-    return (
-      <AuthScreen
-        onAuthSuccess={(path, tabId) => {
-          setDb(store.getDb());
-          setActiveUser(store.getActiveUser());
-          setActiveTab(tabId);
-          navigate(path);
-        }}
-      />
-    );
-  }
 
   // Active view component
   const CurrentViewComponent = (tabs.find(t => t.id === activeTab)?.component || Dashboard) as any;
@@ -571,19 +278,15 @@ export default function App() {
             )}
           </div>
 
-          {/* User profile with simple role badge */}
+          {/* System Workspace Status */}
           <div className="flex items-center space-x-2.5 border-l border-gray-150 dark:border-gray-800 pl-4">
             <div className="text-right hidden sm:block">
               <span className="text-xs font-bold text-gray-800 dark:text-white block">{activeUser.name}</span>
-              <span className="text-[10px] text-gray-400 font-bold block uppercase">{activeUser.role}</span>
+              <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold block uppercase flex items-center justify-end space-x-1">
+                <CheckCircle2 className="h-3 w-3" />
+                <span>Shared Workspace Active</span>
+              </span>
             </div>
-            <button
-              onClick={handleLogout}
-              className="p-2 hover:bg-red-50 dark:hover:bg-red-950/20 text-red-500 rounded-xl cursor-pointer"
-              title="Secure Logout"
-            >
-              <LogOut className="h-4.5 w-4.5" />
-            </button>
           </div>
 
         </div>
@@ -665,24 +368,13 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => {
-                  if (confirm('Transition to the Setup Wizard to register a new business or hotel? Your current records are saved.')) {
+                  if (confirm('Transition to register a new business or hotel? Your current records are saved.')) {
                     store.prepareAddNewBusiness();
                   }
                 }}
                 className="w-full py-1.5 bg-[#E67E22] hover:bg-[#D35400] text-white font-bold rounded-lg text-[10px] transition cursor-pointer text-center block"
               >
                 + Add Other Business
-              </button>
-            </div>
-
-            <div className="space-y-1.5">
-              <button
-                type="button"
-                onClick={handleLogout}
-                className="w-full py-1.5 bg-red-600/25 hover:bg-red-600/40 text-red-200 border border-red-500/30 font-bold rounded-lg text-[10px] transition cursor-pointer flex items-center justify-center space-x-1.5"
-              >
-                <LogOut className="h-3 w-3" />
-                <span>Logout Terminal</span>
               </button>
             </div>
           </div>
@@ -782,22 +474,8 @@ export default function App() {
                   </button>
                 </div>
 
-                <div className="space-y-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      handleLogout();
-                      setMobileMenuOpen(false);
-                    }}
-                    className="w-full flex items-center justify-center space-x-1.5 py-2 bg-red-50 dark:bg-red-950/20 hover:bg-red-100 dark:hover:bg-red-900/30 text-red-600 dark:text-red-400 text-xs font-bold rounded-xl transition cursor-pointer border border-red-200 dark:border-red-900/30"
-                  >
-                    <LogOut className="h-3.5 w-3.5" />
-                    <span>Logout Terminal</span>
-                  </button>
-                </div>
-
                 <div className="pt-2 border-t border-gray-100 dark:border-gray-800">
-                  <span>Logged in: <strong className="text-gray-800 dark:text-white">{activeUser.name}</strong></span>
+                  <span>Workspace: <strong className="text-gray-800 dark:text-white">{activeUser.name}</strong></span>
                 </div>
               </div>
             </div>
